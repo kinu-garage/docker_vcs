@@ -3,12 +3,12 @@ FROM ${BASE_DIMG}
 
 SHELL ["/bin/bash", "-c"]
 
-ARG ENTRY_POINT
+ARG ENTRY_POINT=entry_point.bash
 # Re-defining ROSDISTRO, as 'ARG's need to be defined after FROM, except the one meant to be passed to FROM https://stackoverflow.com/a/63086565/577001
 ARG ROSDISTRO="noetic"
 ARG UBUNTU_DISTRO=focal
-ARG path_repos
-ARG workspace_in_container
+ARG PATH_REPOS
+ARG WS_IN_CONTAINER
 
 RUN echo "DEBUG: ${ROSDISTRO}"
 
@@ -23,12 +23,13 @@ RUN apt-get update \
  && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# install OS tools
-RUN apt-get update && apt-get install -q -y \
+# install OS tools. TBD This dependency better to be contained in a pkg.
+RUN apt update && apt install -y \
     bash-completion \
     git \
     locales \
     psmisc \
+    python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
     wget \
@@ -52,7 +53,6 @@ ENV USERNAME ariac
 ARG USERID=1000
 RUN adduser -u $USERID --gecos "Development User" --disabled-password $USERNAME \
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USERNAME/.bashrc
-
 USER $USERNAME
 WORKDIR /home/$USERNAME
 
@@ -62,20 +62,19 @@ WORKDIR /home/$USERNAME
 ## && tar -xvf /tmp/default.tar.gz -C $HOME/.gazebo/models --strip 1 \
 ## && rm /tmp/default.tar.gz
 
-#Download and compile ARIAC 2020
-RUN mkdir -p $workspace_in_container/src && wget https://raw.githubusercontent.com/130s/ARIAC/feature-cleanup-dependency/dev.repos -O $workspace_in_container/src/dev.repos \
-    && cd $workspace_in_container && vcs import --debug --skip-existing $workspace_in_container < $workspace_in_container/src/dev.repos
+#Download and compile workspace
+COPY $PATH_REPOS $WS_IN_CONTAINER/src/cws.repos
+RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && vcs import --debug --skip-existing $WS_IN_CONTAINER < $WS_IN_CONTAINER/src/cws.repos
 # Workaround for apt cannot be run https://stackoverflow.com/a/57930100/577001
 USER root
 RUN echo "DEBUG: ${ROSDISTRO}" \
     && source /opt/ros/${ROSDISTRO}/setup.bash \
-    && cd $workspace_in_container \
+    && cd $WS_IN_CONTAINER \
     && sudo apt update && rosdep update && rosdep install -y --from-paths src --ignore-src \
-    && catkin_make
+    && colcon build
 USER $USERNAME
 
 # setup entrypoint
-COPY $ENTRY_POINT /
-#RUN chmod +x /$ENTRY_POINT
-
-ENTRYPOINT ["/$ENTRY_POINT"]
+COPY ./entry_point.bash /
+ENTRYPOINT ["/entry_point.bash"]
+CMD ["bash"]
