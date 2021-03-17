@@ -17,6 +17,8 @@ ENV DEBIAN_FRONTEND noninteractive
 
 # Need these before sources can be set up
 RUN apt-get update \
+ # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
+ && apt install -y gnupg2 \
  # setup keys and sources for official Gazebo debian packages
  && apt-key adv --keyserver ha.pool.sks-keyservers.net --recv-keys D2486D2DD83DB69272AFE98867170598AF249743 \
  && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
