@@ -19,6 +19,9 @@ ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update \
  # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
  && apt install -y gnupg2 \
+ # Keys for ros.org
+ && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
+ && apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 \
  # setup keys and sources for official Gazebo debian packages
  && apt-key adv --keyserver ha.pool.sks-keyservers.net --recv-keys D2486D2DD83DB69272AFE98867170598AF249743 \
  && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
@@ -30,7 +33,7 @@ RUN apt update && apt install -y \
     git \
     locales \
     psmisc \
-    python3-colcon-common-extensions \
+#    python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
     wget \
@@ -65,7 +68,7 @@ WORKDIR /home/$USERNAME
 
 #Download and compile workspace
 COPY $PATH_REPOS $WS_IN_CONTAINER/src/cws.repos
-RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && vcs import --debug --skip-existing $WS_IN_CONTAINER < $WS_IN_CONTAINER/src/cws.repos
+RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src && vcs import --debug --skip-existing $WS_IN_CONTAINER/src < $WS_IN_CONTAINER/src/cws.repos
 # Workaround for apt cannot be run https://stackoverflow.com/a/57930100/577001
 USER root
 RUN echo "DEBUG: ${ROSDISTRO}" \
