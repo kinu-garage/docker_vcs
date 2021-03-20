@@ -68,6 +68,8 @@ WORKDIR /home/$USERNAME
 
 #Download and compile workspace
 COPY $PATH_REPOS $WS_IN_CONTAINER/src/cws.repos
+# This fixed dir permission issue but not sure if we want to do this. Sincd docker container runs as root by default this might be just fine?
+USER root
 RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src && vcs import --debug --skip-existing $WS_IN_CONTAINER/src < $WS_IN_CONTAINER/src/cws.repos
 # Workaround for apt cannot be run https://stackoverflow.com/a/57930100/577001
 USER root
