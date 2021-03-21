@@ -78,55 +78,52 @@ class DockerBuilderVCS():
         # TODO Also move this portion to main to make API backward comp.
         # TODO Whether to include Docker API here is debatable.
 
-    def docker_build_noapi(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin=""):
+    def _docker_build_exec_api(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", tmpwork_dir="/tmp", debug=False):
         """
-        @param entrypt_bin: Not implemented yet.
-        @brief Run 'docker build'
-        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability. 
+        @brief Execute docker Python API via its lower-level API.
         """
-        if not path_dockerfile:
-            #raise ValueError("Missing value for '{}'".format(path_dockerfile))
-            path_dockerfile = "./{}".format(DockerBuilderVCS.DEfAULT_DOCKERFILE)  # TODO if docker py sets default val then this won't be needed.
+        dockerfile = os.path.basename(path_dockerfile)
+        dck_api = APIClient()
 
-        # If the some files (dockerfile, path_repos) that 'docker build' uses are not under current dir,
-        # 1. copy them in the temp folder on the host.
-        # 2. CD into the temp folder so that 'docker build' run in that context.
-        tmp_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
-        os.makedirs(tmp_dir)
-        to_be_copied = [path_dockerfile, path_repos]  # Path of files to be copied to the temp dir.
-        for file_path in to_be_copied:
-            logging.debug("File to be copied: '{}'".format(file_path))
-            shutil.copy2(file_path, tmp_dir)
-        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(tmp_dir)))
-        os.chdir(tmp_dir)
-
-        if entrypt_bin:
-            logging.warning(MSG_ENTRYPT_NO_SUBST)
-        if not outimg:
-            outimg = baseimg + "_out"  # TODO make this customizable
-        try:
-            img, _log = self._docker_client.images.build(
-                tag=outimg,
-                path=".",  # TODO Can we really assume current dir is always the dir this pg runs on and where Dockerfile is present?
-                dockerfile=os.path.basename(path_dockerfile),
-                rm=True,
-                buildargs={"BASE_DIMG": baseimg,
-                           "ENTRY_POINT": entrypt_bin,
-                           "PATH_REPOS": os.path.basename(path_repos),
-                           "WS_IN_CONTAINER": self._workspace_in_container},
-                quiet=False)
-        except docker.errors.BuildError as e:
-            logging.error("'docker build' failed: {}".format(str(e)))
-            _log = e.build_log
-            raise e
-        except Exception as e:
-            logging.error("'docker build' failed: {}".format(str(e)))
-            raise e
-        finally:
-            for line in _log:
+        fobj = BytesIO(dockerfile.encode('utf-8'))
+        _resp_docker_build = [line for line in dck_api.build(
+            buildargs={"BASE_DIMG": baseimg,
+                       "ENTRY_POINT": entrypt_bin,
+                       "PATH_REPOS": os.path.basename(path_repos),
+                       "WS_IN_CONTAINER": self._workspace_in_container},
+            dockerfile=dockerfile,
+            fileobj=fobj,
+            path=tmpwork_dir,
+            quiet=debug,
+            rm=rm_intermediate,
+            tag=outimg
+        )]
+        for line in _resp_docker_build:
                 if 'stream' in line:
-                    logging.error(line['stream'].strip())
-        
+                    logging.info(line['stream'].strip())
+
+    def _docker_build_exec_noapi(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", tmpwork_dir="/tmp", debug=False):
+        """
+        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability.
+        @brief Execute docker Python API via its lower-level API.
+        """
+        img, _log = self._docker_client.images.build(
+            dockerfile=os.path.basename(path_dockerfile),
+            buildargs={"BASE_DIMG": baseimg,
+                       "ENTRY_POINT": entrypt_bin,
+                       "PATH_REPOS": os.path.basename(path_repos),
+                       "WS_IN_CONTAINER": self._workspace_in_container},
+            path=tmpwork_dir,
+            quiet=debug,
+            rm=True,
+            tag=outimg
+        )
+
+        for line in _log:
+            if 'stream' in line:
+                logging.error(line['stream'].strip())
+        return img, _log
+
     def docker_build(
             self,
             path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", debug=False):
@@ -161,21 +158,10 @@ class DockerBuilderVCS():
         dck_api = APIClient()
         try:
             fobj = BytesIO(dockerfile.encode('utf-8'))
-            _resp_docker_build = [line for line in dck_api.build(
-                buildargs={"BASE_DIMG": baseimg,
-                           "ENTRY_POINT": entrypt_bin,
-                           "PATH_REPOS": os.path.basename(path_repos),
-                           "WS_IN_CONTAINER": self._workspace_in_container},
-                dockerfile=dockerfile,
-                fileobj=fobj,
-                path=tmp_dir,
-                quiet=debug,
-                rm=rm_intermediate,
-                tag=outimg
-            )]
-            for line in _resp_docker_build:
-                    if 'stream' in line:
-                        logging.info(line['stream'].strip())
+#            self._docker_build_exec_api(
+            self._docker_build_exec_noapi(
+                path_dockerfile, baseimg, path_repos, rm_intermediate=False, tmpwork_dir=tmp_dir, debug=debug)
+
         except docker.errors.BuildError as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             _log = e.build_log
@@ -198,7 +184,7 @@ class DockerBuilderVCS():
                 # TODO Not necessarilly logging.error
                 logging.error(line['stream'].strip())
 
-    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", path_repos=""):
+    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", path_repos="", debug=False):
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         """
@@ -210,7 +196,7 @@ class DockerBuilderVCS():
             exit(1)
 
         logging.debug("path_dockerfile: {}, base_docker_img: {}, path_repos: {}".format(path_dockerfile, base_docker_img, path_repos))
-        self.docker_build_noapi(path_dockerfile, base_docker_img, path_repos, rm_intermediate=False)
+        self.docker_build(path_dockerfile, base_docker_img, path_repos, rm_intermediate=False, debug=debug)
         return True
 
     def main(self):
@@ -234,7 +220,7 @@ class DockerBuilderVCS():
     #        log_file=args.log_file,
     #        push_cloud=args.push_cloud,
     #    )
-        return self.build(args.docker_base_img, args.dockerfile, args.path_repos)
+        return self.build(args.docker_base_img, args.dockerfile, args.path_repos, args.debug)
 
 
 if __name__ == '__main__':
