@@ -113,7 +113,8 @@ class DockerBuilderVCS():
                        "ENTRY_POINT": entrypt_bin,
                        "PATH_REPOS": os.path.basename(path_repos),
                        "WS_IN_CONTAINER": self._workspace_in_container},
-            path=tmpwork_dir,
+            #path=tmpwork_dir,
+            path=".",
             quiet=debug,
             rm=True,
             tag=outimg
