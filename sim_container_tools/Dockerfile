@@ -77,6 +77,7 @@ RUN echo "DEBUG: ${ROSDISTRO}" \
     && source /opt/ros/${ROSDISTRO}/setup.bash \
     && cd $WS_IN_CONTAINER \
     && sudo apt update && rosdep update && rosdep install -y --from-paths src --ignore-src \
+    && echo "Tentative before settles https://answers.ros.org/question/374424"; apt install -y python3-colcon-common-extensions \
     && colcon build
 USER $USERNAME
 
