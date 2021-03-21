@@ -2,10 +2,11 @@
 
 # Copyright (C) 2021 Kinu Garage
 # Licensed under TBD
-
 import argparse
 import datetime
 import docker
+from docker import APIClient
+from io import BytesIO
 import logging
 import os
 import sh
@@ -77,9 +78,11 @@ class DockerBuilderVCS():
         # TODO Also move this portion to main to make API backward comp.
         # TODO Whether to include Docker API here is debatable.
 
-    def docker_build(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin=""):
+    def docker_build_noapi(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin=""):
         """
         @param entrypt_bin: Not implemented yet.
+        @brief Run 'docker build'
+        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability. 
         """
         if not path_dockerfile:
             #raise ValueError("Missing value for '{}'".format(path_dockerfile))
@@ -124,6 +127,63 @@ class DockerBuilderVCS():
                 if 'stream' in line:
                     logging.error(line['stream'].strip())
         
+    def docker_build(
+            self,
+            path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", debug=False):
+        """
+        @brief Run 'docker build' using 'lower API version' https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build.
+            See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
+        @param entrypt_bin: Not implemented yet. Needs implemented to inject entrypoint in the built Docker img.
+        """
+        # Some verification for args.
+        if not path_dockerfile:
+            #raise ValueError("Missing value for '{}'".format(path_dockerfile))
+            path_dockerfile = "./{}".format(DockerBuilderVCS.DEfAULT_DOCKERFILE)  # TODO if docker py sets default val then this won't be needed.
+        if not outimg:
+            outimg = baseimg + "_out"  # TODO make this customizable
+
+        # If the some files (dockerfile, path_repos) that 'docker build' uses are not under current dir,
+        # 1. copy them in the temp folder on the host.
+        # 2. CD into the temp folder so that 'docker build' run in that context.
+        tmp_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        os.makedirs(tmp_dir)
+        to_be_copied = [path_dockerfile, path_repos]  # Path of files to be copied to the temp dir.
+        for file_path in to_be_copied:
+            logging.debug("File to be copied: '{}'".format(file_path))
+            shutil.copy2(file_path, tmp_dir)
+        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(tmp_dir)))
+        os.chdir(tmp_dir)
+
+        if entrypt_bin:
+            logging.warning(MSG_ENTRYPT_NO_SUBST)
+
+        dockerfile = os.path.basename(path_dockerfile)
+        dck_api = APIClient()
+        try:
+            fobj = BytesIO(dockerfile.encode('utf-8'))
+            _resp_docker_build = [line for line in dck_api.build(
+                buildargs={"BASE_DIMG": baseimg,
+                           "ENTRY_POINT": entrypt_bin,
+                           "PATH_REPOS": os.path.basename(path_repos),
+                           "WS_IN_CONTAINER": self._workspace_in_container},
+                dockerfile=dockerfile,
+                fileobj=fobj,
+                path=tmp_dir,
+                quiet=debug,
+                rm=rm_intermediate,
+                tag=outimg
+            )]
+            for line in _resp_docker_build:
+                    if 'stream' in line:
+                        logging.info(line['stream'].strip())
+        except docker.errors.BuildError as e:
+            logging.error("'docker build' failed: {}".format(str(e)))
+            _log = e.build_log
+            raise e
+        except Exception as e:
+            logging.error("'docker build' failed: {}".format(str(e)))
+            raise e
+        
     def check_prerequisite(self):
 #        if not shutil.which("aws"):
 #            raise RuntimeError("awscli not found to be installed. Exiting.")
@@ -150,7 +210,7 @@ class DockerBuilderVCS():
             exit(1)
 
         logging.debug("path_dockerfile: {}, base_docker_img: {}, path_repos: {}".format(path_dockerfile, base_docker_img, path_repos))
-        self.docker_build(path_dockerfile, base_docker_img, path_repos, rm_intermediate=False)
+        self.docker_build_noapi(path_dockerfile, base_docker_img, path_repos, rm_intermediate=False)
         return True
 
     def main(self):
