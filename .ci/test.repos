@@ -1,0 +1,2 @@
+#- git: {local-name: osrf/ariac-gazebo_ros_pkgs, uri: 'http://github.com/130s/ariac-gazebo_ros_pkgs.git', version: ariac-network-noetic}
+- git: {local-name: usnistgov/ARIAC, uri: 'http://github.com/usnistgov/ARIAC.git', version: master}
