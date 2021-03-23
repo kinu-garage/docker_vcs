@@ -98,9 +98,7 @@ class DockerBuilderVCS():
             rm=rm_intermediate,
             tag=outimg
         )]
-        for line in _resp_docker_build:
-                if 'stream' in line:
-                    logging.info(line['stream'].strip())
+        return _resp_docker_build
 
     def _docker_build_exec_noapi(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", tmpwork_dir="/tmp", debug=False):
         """
@@ -119,15 +117,25 @@ class DockerBuilderVCS():
             rm=True,
             tag=outimg
         )
+        return _log
 
-        for line in _log:
-            if 'stream' in line:
-                logging.error(line['stream'].strip())
-        return img, _log
+    def copy(self, list_files_src):
+        # If the some files (dockerfile, path_repos) that 'docker build' uses are not under current dir,
+        # 1. copy them in the temp folder on the host.
+        # 2. CD into the temp folder so that 'docker build' run in that context.
+        tmp_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        os.makedirs(tmp_dir)
+        to_be_copied = list_files_src  # Path of files to be copied to the temp dir.
+        for file_path in to_be_copied:
+            logging.debug("File to be copied: '{}'".format(file_path))
+            shutil.copy2(file_path, tmp_dir)
+        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(tmp_dir)))
+        os.chdir(tmp_dir)
+        return tmp_dir
 
     def docker_build(
             self,
-            path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", debug=False):
+            path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="entry_point.bash", debug=False):
         """
         @brief Run 'docker build' using 'lower API version' https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build.
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
@@ -140,27 +148,14 @@ class DockerBuilderVCS():
         if not outimg:
             outimg = baseimg + "_out"  # TODO make this customizable
 
-        # If the some files (dockerfile, path_repos) that 'docker build' uses are not under current dir,
-        # 1. copy them in the temp folder on the host.
-        # 2. CD into the temp folder so that 'docker build' run in that context.
-        tmp_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
-        os.makedirs(tmp_dir)
-        to_be_copied = [path_dockerfile, path_repos]  # Path of files to be copied to the temp dir.
-        for file_path in to_be_copied:
-            logging.debug("File to be copied: '{}'".format(file_path))
-            shutil.copy2(file_path, tmp_dir)
-        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(tmp_dir)))
-        os.chdir(tmp_dir)
+        # copy resources
+        tmp_dir = self.copy([path_dockerfile, path_repos, entrypt_bin])
 
         if entrypt_bin:
             logging.warning(MSG_ENTRYPT_NO_SUBST)
 
-        dockerfile = os.path.basename(path_dockerfile)
-        dck_api = APIClient()
         try:
-            fobj = BytesIO(dockerfile.encode('utf-8'))
-#            self._docker_build_exec_api(
-            self._docker_build_exec_noapi(
+            _log = self._docker_build_exec_noapi(
                 path_dockerfile, baseimg, path_repos, rm_intermediate=False, tmpwork_dir=tmp_dir, debug=debug)
 
         except docker.errors.BuildError as e:
@@ -170,6 +165,11 @@ class DockerBuilderVCS():
         except Exception as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
+        finally:
+            for line in _log:
+                if 'stream' in line:
+                    logging.error(line['stream'].strip())
+
         
     def check_prerequisite(self):
 #        if not shutil.which("aws"):
