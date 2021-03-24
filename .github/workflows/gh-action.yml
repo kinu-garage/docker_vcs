@@ -7,9 +7,9 @@ jobs:
     strategy:
       matrix:
         env:  # Using some early-adapter applications
-          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: 2021.repos}
-          - {ROS_DISTRO: noetic, UPSTREAM_WORKSPACE: 2021.repos}
-          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: 2020.repos}
+          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: .ci/test.repos}
+          - {ROS_DISTRO: noetic, UPSTREAM_WORKSPACE: .ci/test.repos}
+          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: .ci/test.repos}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
