@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(sim_container_tools)
+project(docker_vcs_tools)
 
 find_package(catkin REQUIRED COMPONENTS
 )

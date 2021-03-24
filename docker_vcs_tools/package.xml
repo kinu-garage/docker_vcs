@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>sim_container_tools</name>
+  <name>docker_vcs_tools</name>
   <version>0.0.0</version>
   <description>Tool set for building 3D simulation and graphical tools and their application in a container images.</description>
   <license>Apache 2.0</license>
