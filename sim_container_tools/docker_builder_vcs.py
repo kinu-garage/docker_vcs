@@ -211,7 +211,7 @@ class DockerBuilderVCS():
         parser.add_argument("--path_repos", help="Path to .repos file to clone and build in side the container/image.")
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
-        parser.add_argument("--workspace_in_container", help="TBD", default="/tmp/dws")
+        parser.add_argument("--workspace_in_container", help="Workspace where the software obtained from vcs will be copied into. Also by default install space will be under this dir.", default="/cws")
         parser.add_argument("--workspace_on_host", help="Current dir, as Docker's context shouldn't change in order for Dockerfile to be accessible.", default=".")
 
         args = parser.parse_args()
