@@ -9,8 +9,16 @@ jobs:
         env:  # Using some early-adapter applications
           - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: .ci/test.repos}
           - {ROS_DISTRO: noetic, UPSTREAM_WORKSPACE: .ci/test.repos}
+    env:
+      CCACHE_DIR: /github/home/.ccache # Directory for ccache (and how we enable ccache in industrial_ci)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
+      # This step will fetch/store the directory used by ccache before/after the ci run
+      - uses: actions/cache@v2
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ matrix.env.ROS_DISTRO }}-${{ matrix.env.ROS_REPO }}
+      # Run industrial_ci
       - uses: 'ros-industrial/industrial_ci@master'
-        env: ${{matrix.env}}
+        env: ${{ matrix.env }}        
