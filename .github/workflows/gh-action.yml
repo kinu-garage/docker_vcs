@@ -7,8 +7,8 @@ jobs:
     strategy:
       matrix:
         env:  # Using some early-adapter applications
-          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: .ci/test.repos}
-          - {ROS_DISTRO: noetic, UPSTREAM_WORKSPACE: .ci/test.repos}
+          - {ROS_DISTRO: melodic, UPSTREAM_WORKSPACE: 'https://raw.githubusercontent.com/130s/docker_vcstool/develop/.ci/test.repos'}
+          - {ROS_DISTRO: noetic, UPSTREAM_WORKSPACE: 'https://raw.githubusercontent.com/130s/docker_vcstool/develop/.ci/test.repos'}
     env:
       CCACHE_DIR: /github/home/.ccache # Directory for ccache (and how we enable ccache in industrial_ci)
     runs-on: ubuntu-latest
