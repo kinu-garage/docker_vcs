@@ -1,7 +1,8 @@
 #! /usr/bin/env python3
 
 # Copyright (C) 2021 Kinu Garage
-# Licensed under TBD
+# Licensed under Apache 2
+
 import argparse
 import datetime
 import docker
