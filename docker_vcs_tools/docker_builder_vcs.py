@@ -5,15 +5,14 @@
 
 import argparse
 import datetime
-from distutils.dir_util import copy_tree
 import docker
-from docker import APIClient
 from io import BytesIO
 import logging
 import os
-import sh
-import shutil
 import subprocess
+import sh
+import shlex
+import shutil
 import time
 
 DESC_DBUILDER = """'docker build' command with 3 additional features.
@@ -30,10 +29,10 @@ class DockerBuilderVCS():
     """
     DEfAULT_DOCKER_IMG = "ubuntu:focal"
     DEfAULT_DOCKERFILE = "Dockerfile"
+    TOPDIR_SRC = "src"  # This folder name seems requirement for Catkin
+    _MSG_LIMITATION_SRC_LOCATION = "There may be usecases to use both 'volume_build' and 'path_repos', which is not yet covered as the need is unclear."
 
     def __init__(self):
-        """
-        """
         try:
             self._docker_client = docker.from_env()
         except (docker.errors.APIError, docker.errors.TLSParameterError) as e:
@@ -82,29 +81,31 @@ class DockerBuilderVCS():
         # TODO Also move this portion to main to make API backward comp.
         # TODO Whether to include Docker API here is debatable.
 
-    def _docker_build_exec_api(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", tmpwork_dir="/tmp", debug=False):
+    def _docker_build_exec_api(self, path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="", path_context=".", debug=False):
         """
         @brief Execute docker Python API via its lower-level API.
+        @param path_context: Path of the directory'path_dockerfile' is located in.
         """
         dockerfile = os.path.basename(path_dockerfile)
-        dck_api = APIClient()
+        logging.info("Current dir before docker build: {}, dockerfile: {}".format(os.path.abspath(os.path.curdir), dockerfile))
+        
+        dck_api = docker.APIClient()
 
-        fobj = BytesIO(dockerfile.encode('utf-8'))
+        #fobj = BytesIO(dockerfile.encode('utf-8'))
         _resp_docker_build = [line for line in dck_api.build(
             buildargs={"BASE_DIMG": baseimg,
                        "ENTRY_POINT": entrypt_bin,
-                       "PATH_REPOS": os.path.basename(path_repos),
                        "WS_IN_CONTAINER": self._workspace_in_container},
             dockerfile=dockerfile,
-            fileobj=fobj,
-            path=tmpwork_dir,
+        #    fileobj=fobj,
+            path=path_context,
             quiet=debug,
             rm=rm_intermediate,
             tag=outimg
         )]
         return _resp_docker_build
 
-    def _docker_build_exec_noapi(self, path_dockerfile, baseimg, path_repos, outimg="", rm_intermediate=True, entrypt_bin="", tmpwork_dir="/tmp", debug=False):
+    def _docker_build_exec_noapi(self, path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="", debug=False):
         """
         @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability.
         @brief Execute docker Python API via its lower-level API.
@@ -113,9 +114,7 @@ class DockerBuilderVCS():
             dockerfile=os.path.basename(path_dockerfile),
             buildargs={"BASE_DIMG": baseimg,
                        "ENTRY_POINT": entrypt_bin,
-                       "PATH_REPOS": os.path.basename(path_repos),
                        "WS_IN_CONTAINER": self._workspace_in_container},
-            #path=tmpwork_dir,
             path=".",
             quiet=debug,
             rm=True,
@@ -144,27 +143,35 @@ class DockerBuilderVCS():
             raise e
         return container
 
-    def copy(self, tmp_dir, list_files_src):
+    def copy(self, src_list_files, dest_dir):
         """
-        @summary: If the some files (dockerfile, path_repos) that 'docker build' uses are not under current dir,
+        @summary: If the some files (e.g. dockerfile) that 'docker build' uses are not under current dir,
             1. copy them in the temp folder on the host.
             2. CD into the temp folder so that 'docker build' run in that context.
-        @param list_files_src: Path to a folder or file to be copied. 
+        @param src_list_files: Absolute or relative path to a folder or file to be copied. 
         """
-        if not os.path.isdir(tmp_dir):
-            os.makedirs(tmp_dir)
-        for path in list_files_src:
-            logging.debug("File to be copied: '{}'".format(path))
-            if os.path.isdir(path):
-                copy_tree(os.path.abspath(path), os.path.join(tmp_dir, path))
+        logging.info("Src list: {}, Destination dir {}".format(src_list_files, dest_dir))
+        if not os.path.isdir(dest_dir):
+            logging.info("Destination dir '{}' does not exist. Making it now.'".format(dest_dir))
+            os.makedirs(dest_dir)
+        for src_file_path in src_list_files:
+            logging.info("To be copied: '{}'".format(src_file_path))
+            # Python...I found copy cannot be done with the same method per dir and file.
+            if os.path.isdir(src_file_path):
+                abs_path_src = src_file_path if os.path.isabs(src_file_path) else os.path.abspath(src_file_path)
+                #abs_path_dest = dest_dir if os.path.isabs(dest_dir) else os.path.join(dest_dir, path)
+                abs_path_dest = os.path.join(dest_dir, os.path.basename(src_file_path))
+                #os.makedirs(abs_path_dest, exist_ok=True)
+                logging.info("Dir '{}' (absolute: {}) to be copied into: '{}'".format(src_file_path, abs_path_src, abs_path_dest))
+                shutil.copytree(os.path.abspath(src_file_path), abs_path_dest)
             else:
-                shutil.copy2(path, tmp_dir)
-        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(tmp_dir)))
-        return tmp_dir
+                shutil.copy2(src_file_path, dest_dir)
+        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(dest_dir)))
+        return dest_dir
 
     def docker_build(
             self,
-            path_dockerfile, baseimg, path_repos="", outimg="", rm_intermediate=True, entrypt_bin="entry_point.bash", debug=False):
+            path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="entry_point.bash", debug=False):
         """
         @brief Run 'docker build' using 'lower API version' https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build.
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
@@ -180,10 +187,12 @@ class DockerBuilderVCS():
         if entrypt_bin:
             logging.warning(MSG_ENTRYPT_NO_SUBST)
 
-        try:
-            _log = self._docker_build_exec_noapi(
-                path_dockerfile, baseimg, path_repos, rm_intermediate=False, tmpwork_dir=tmp_dir, debug=debug)
+        logging.debug("Current dir before docker build: {}".format(os.path.abspath(os.path.curdir)))
 
+        _log = None
+        try:
+            _log = self._docker_build_exec_api(
+                path_dockerfile, baseimg, rm_intermediate=False, debug=debug)
         except docker.errors.BuildError as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             _log = e.build_log
@@ -191,11 +200,12 @@ class DockerBuilderVCS():
         except Exception as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
-        finally:
+        try:
             for line in _log:
                 if 'stream' in line:
                     logging.error(line['stream'].strip())
-
+        except TypeError as e:
+            logging.error("Tentatively disabling logging the result of docker build due to the exception: {}".format(e))
         
     def check_prerequisite(self):
 #        if not shutil.which("aws"):
@@ -240,24 +250,37 @@ class DockerBuilderVCS():
         #self.docker_login()
 
         # copy resources
-        tobe_copied = [path_dockerfile, entrypt_bin]
-        tmp_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        tobe_copied = [path_dockerfile]
+        tmp_docker_context_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        # Appending resources to be copied into Docker. For now
         if self._user_args.path_repos:
-            tobe_copied.append(self._user_args.path_repos)
+            logging.info("'path_repos' is set. Clone locally from the repositories defined in the given .repos file.")
+            tmp_dockercontext_srcdir = os.path.join(tmp_docker_context_dir, self.TOPDIR_SRC)
+            os.makedirs(tmp_dockercontext_srcdir, exist_ok=True)
+            logging.info("Build tools may require the top dir name to be '{}' for the source. Temporary source dir created: '{}'".format(self.TOPDIR_SRC, tmp_dockercontext_srcdir))
+            os.chdir(tmp_docker_context_dir)
+            debug_arg = "--debug" if debug else ""
+            _CMD_VCS = "vcs import {} --skip-existing {}/{} < {}".format(debug_arg, tmp_docker_context_dir, self.TOPDIR_SRC, self._user_args.path_repos)
+            subprocess.run(shlex.split(_CMD_VCS), capture_output=True)
+            tobe_copied.append(tmp_dockercontext_srcdir)
         elif self._user_args.volume_build:
+            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(self._user_args.volume_build))
+            if not self._user_args.volume_build.endswith(self.TOPDIR_SRC):
+                logging.info("The mounted top dir name '{}' is not 'src', then not adding the top dir to tobe_copied.".format(self._user_args.volume_build))
+                for f in os.listdir(self._user_args.volume_build):
+                    self.copy(f, tmp_dockercontext_srcdir)
             tobe_copied.append(self._user_args.volume_build)
-        self.copy(tmp_dir, tobe_copied)
-        os.chdir(tmp_dir)
+        self.copy(tobe_copied, tmp_docker_context_dir)
+        os.chdir(tmp_docker_context_dir)
 
-        # TODO if volume mount build, copy the files in the volume. 
-
-        logging.debug("path_dockerfile: {}, base_docker_img: {}, path_repos: {}".format(path_dockerfile, base_docker_img, path_repos))
-        self.docker_build(path_dockerfile, base_docker_img, path_repos, rm_intermediate=False, debug=debug)
+        logging.info("path_dockerfile: {}, base_docker_img: {}, tmp Docker context dir: {}".format(path_dockerfile, base_docker_img, tmp_docker_context_dir))
+        self.docker_build(path_dockerfile, base_docker_img, rm_intermediate=False, debug=debug)
         
         return True
 
     def main(self):
-        _MSG_LIMITATION_VOLUME = "For now this cannot be defined multiple times, as opposed to 'docker run' where multiple '-v' can be passed to."
+        _MSG_LIMITATION_VOLUME = ("For now this cannot be defined multiple times, as opposed to 'docker run' where multiple '-v's can be passed to."
+                                  "Therefore the value passed to this needs to be the ***top directory*** of all source folders to be built, e.g. 'src'.")
 
         parser = argparse.ArgumentParser(description=DESC_DBUILDER)
         ## For now assume dockerfile
@@ -271,15 +294,14 @@ class DockerBuilderVCS():
         parser.add_argument("--workspace_in_container", help="Workspace where the software obtained from vcs will be copied into. Also by default install space will be under this dir.", default="/cws")
         parser.add_argument("--workspace_on_host", help="Current dir, as Docker's context shouldn't change in order for Dockerfile to be accessible.", default=".")
         gr_src_to_build = parser.add_mutually_exclusive_group()
-        gr_src_to_build.add_argument("--path_repos", help="Path to .repos file to clone and build in side the container/image.")
+        gr_src_to_build.add_argument("--path_repos", help="Path to .repos file to clone and build in side the container/image. {}".format(self._MSG_LIMITATION_SRC_LOCATION))
         gr_src_to_build.add_argument("--volume", help="""
                                Not implemented yet. Bind volume mount. Unlike '--volume_build' option, this doesn't do anything but mounting.
                                Anything you want to happen can be defined in your 'Dockerfile'.
                                {}""".format(_MSG_LIMITATION_VOLUME))
         gr_src_to_build.add_argument("--volume_build", help="""
-                               The path to be bound as volume mount. Sources in this path will be built into Docker container.
-                               If you're passing 'Dockerfile' and do some operations with mounted volume, use '--volume' option instead.
-                               {}""".format(_MSG_LIMITATION_VOLUME))
+                               The path to be bound as volume mount. Sources in this path will be targeted to build into Docker container.
+                               {} {}""".format(_MSG_LIMITATION_VOLUME, self._MSG_LIMITATION_SRC_LOCATION))
 
         args = parser.parse_args()
         self.init(args)
