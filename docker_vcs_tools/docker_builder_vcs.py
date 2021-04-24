@@ -29,6 +29,7 @@ class DockerBuilderVCS():
     """
     DEfAULT_DOCKER_IMG = "ubuntu:focal"
     DEfAULT_DOCKERFILE = "Dockerfile"
+    DEfAULT_DOCKERTAG = "dockerimg_built"
     TOPDIR_SRC = "src"  # This folder name seems requirement for Catkin
     _MSG_LIMITATION_SRC_LOCATION = "There may be usecases to use both 'volume_build' and 'path_repos', which is not yet covered as the need is unclear."
 
@@ -171,10 +172,11 @@ class DockerBuilderVCS():
 
     def docker_build(
             self,
-            path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="entry_point.bash", debug=False):
+            path_dockerfile, baseimg, outimg="", rm_intermediate=True, tag=DEfAULT_DOCKERTAG, entrypt_bin="entry_point.bash", debug=False):
         """
         @brief Run 'docker build' using 'lower API version' https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build.
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
+        @param tag: Tag for the Docker image to be built.
         @param entrypt_bin: Not implemented yet. Needs implemented to inject entrypoint in the built Docker img.
         """
         # Some verification for args.
@@ -190,9 +192,10 @@ class DockerBuilderVCS():
         logging.debug("Current dir before docker build: {}".format(os.path.abspath(os.path.curdir)))
 
         _log = None
+
         try:
             _log = self._docker_build_exec_api(
-                path_dockerfile, baseimg, rm_intermediate=False, debug=debug)
+                path_dockerfile, baseimg, outimg=tag, rm_intermediate=False, debug=debug)
         except docker.errors.BuildError as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             _log = e.build_log
@@ -206,6 +209,7 @@ class DockerBuilderVCS():
                     logging.error(line['stream'].strip())
         except TypeError as e:
             logging.error("Tentatively disabling logging the result of docker build due to the exception: {}".format(e))
+        return True
         
     def check_prerequisite(self):
 #        if not shutil.which("aws"):
@@ -288,6 +292,7 @@ class DockerBuilderVCS():
         parser.add_argument("--debug", help="Disabled by default.", action="store_true")
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
         parser.add_argument("--dockerfile", help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
+        parser.add_argument("--docker_image_tag", help="Tag for the Docker image to be built. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERTAG))
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
