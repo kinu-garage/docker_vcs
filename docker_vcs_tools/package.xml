@@ -8,7 +8,7 @@
   <author email="130s@2000.jukuin.keio.ac.jp">Isaac Saito</author>
   <url type="website">https://github.com/130s/docker_vcstool</url>
   <buildtool_depend>catkin</buildtool_depend>
-<!--  <buildtool_depend>python3-colcon-common-extensions</buildtool_depend> Comment in once https://github.com/ros/rosdistro/pull/28923 gets merged -->
+  <buildtool_depend>python3-colcon-common-extensions</buildtool_depend>
   <exec_depend>python3-docker</exec_depend>
   <exec_depend>python3-sh</exec_depend>
 </package>
