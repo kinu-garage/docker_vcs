@@ -10,6 +10,7 @@ from io import BytesIO
 import json
 import logging
 import os
+from pathlib import Path 
 import subprocess
 import sh
 import shlex
@@ -24,6 +25,19 @@ DESC_DBUILDER = """'docker build' command with 3 additional features.
 MSG_ENTRYPT_NO_SUBST = "As of 2021/02 entrypoint is statically embedded in a Docker image as resolving entrypoint seems not easy."
 
 
+class BuilderVCSUtil():
+    """
+    @todo: Once modularized, this class should be moved to a seprated file.
+    """
+    @staticmethod
+    def get_path(pattern):
+        """
+        @brief Return a path of a file with a given name.
+        """
+        result = list(Path(PATH).glob('**/{}'.format(pattern)))  
+        pass
+
+    
 class DockerBuilderVCS():
     """
     @summary See DESC_DBUILDER variable.
@@ -31,6 +45,7 @@ class DockerBuilderVCS():
     DEfAULT_DOCKER_IMG = "ubuntu:focal"
     DEfAULT_DOCKERFILE = "Dockerfile"
     DEfAULT_DOCKERTAG = "dockerimg_built"
+    DEfAULT_ENTRYPOINT_PTN = "entry*point.*sh"
     TOPDIR_SRC = "src"  # This folder name seems requirement for Catkin
     _MSG_LIMITATION_SRC_LOCATION = "There may be usecases to use both 'volume_build' and 'path_repos', which is not yet covered as the need is unclear."
 
@@ -82,6 +97,19 @@ class DockerBuilderVCS():
 
         # TODO Also move this portion to main to make API backward comp.
         # TODO Whether to include Docker API here is debatable.
+
+    @staticmethod
+    def check_prerequisite(paths):
+        """
+        @type: [str] 
+        @raise FileNotFoundError: When any input files are not found at the given path.
+        """
+        not_found = []
+        for path in paths:
+            if (not path) and (not os.path.isfile(path)):
+                not_found.append(path)
+        if not_found:
+            raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
 
     @staticmethod
     def build_result_parser(build_result):
@@ -223,11 +251,6 @@ class DockerBuilderVCS():
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
         return result
-        
-    def check_prerequisite(self):
-#        if not shutil.which("aws"):
-#            raise RuntimeError("awscli not found to be installed. Exiting.")
-        pass
 
     def docker_readlog(self, logobj):
         """
@@ -253,20 +276,33 @@ class DockerBuilderVCS():
         container.commit(docker_img)
         # TODO Terminate the container?
 
-    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", debug=False):
+    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", filename_entrypt_exec="", debug=False):
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
+        @param filename_entrypt_exec: Path to the executable used in a Dockerfile.
         """
+        if not filename_entrypt_exec:
+            try:
+                filename_entrypt_exec = BuilderVCSUtil.get_path(filename_entrypt_exec)
+            except FileNotFoundError as e:
+                loggin.warn("""
+                    Entrypoint executable not passed, nor any files with 
+                    commonly used names are not found. This doesn't mean error,
+                    e.g. if entrypoint is not used in Dockerfile, this won't
+                    cause any error. Limitation tracked: https://github.com/130s/docker_vcstool/issues/5
+                    \n{}""".format(str(e)))
         # If prerequisite not met, exit the entire process.
         try:
-            self.check_prerequisite()
-        except RuntimeError as e:
+            self.check_prerequisite([path_dockerfile, filename_entrypt_exec])
+        except FileNotFoundError as e:
             logging.error(str(e))
             exit(1)
 
         #self.docker_login()
 
-        # copy resources
+        # 1. Create temporary target dir for copy.
+        # 2. vcs import to clone all vcs repos locally.
+        # 3. Copy resources into the temporary target dir.
         tobe_copied = [path_dockerfile]
         tmp_docker_context_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
         # Appending resources to be copied into Docker. For now
@@ -291,7 +327,7 @@ class DockerBuilderVCS():
         os.chdir(tmp_docker_context_dir)
 
         logging.info("path_dockerfile: {}, base_docker_img: {}, tmp Docker context dir: {}".format(path_dockerfile, base_docker_img, tmp_docker_context_dir))
-        self.docker_build(path_dockerfile, base_docker_img, rm_intermediate=False, debug=debug)
+        self.docker_build(path_dockerfile, base_docker_img, rm_intermediate=False, entrypt_bin=filename_entrypt_exec, debug=debug)
         
         return True
 
@@ -306,6 +342,7 @@ class DockerBuilderVCS():
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
         parser.add_argument("--dockerfile", help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
         parser.add_argument("--docker_image_tag", help="Tag for the Docker image to be built. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERTAG))
+        parser.add_argument("--entrypoint_exec", help="Path to the executable used in '--dockerfile'. If empty, a file with the given name will be sought in the same path as '--dockerfile'.")
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
@@ -328,7 +365,7 @@ class DockerBuilderVCS():
     #        log_file=args.log_file,
     #        push_cloud=args.push_cloud,
     #    )
-        return self.build(args.docker_base_img, args.dockerfile, args.debug)
+        return self.build(args.docker_base_img, args.dockerfile, args.entrypoint_exec, args.debug)
 
 
 if __name__ == '__main__':
