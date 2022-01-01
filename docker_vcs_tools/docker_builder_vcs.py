@@ -10,7 +10,7 @@ from io import BytesIO
 import json
 import logging
 import os
-from pathlib import Path 
+from pathlib import Path
 import subprocess
 import sh
 import shlex
@@ -30,11 +30,13 @@ class BuilderVCSUtil():
     @todo: Once modularized, this class should be moved to a seprated file.
     """
     @staticmethod
-    def get_path(pattern):
+    def get_path(pattern, path_root="."):
         """
         @brief Return a path of a file with a given name.
+        @param path_root: Directory to search into.
+        @param pattern: Follow the pathlib.Path.glob argument https://docs.python.org/3/library/pathlib.html#pathlib.Path.glob
         """
-        result = list(Path(PATH).glob('**/{}'.format(pattern)))  
+        result = list(Path(path_root).glob('**/{}'.format(pattern)))
         pass
 
     
