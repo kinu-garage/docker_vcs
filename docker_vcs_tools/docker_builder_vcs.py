@@ -108,7 +108,7 @@ class DockerBuilderVCS():
         """
         not_found = []
         for path in paths:
-            if (not path) and (not os.path.isfile(path)):
+            if path and (not os.path.isfile(path)):
                 not_found.append(path)
         if not_found:
             raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
