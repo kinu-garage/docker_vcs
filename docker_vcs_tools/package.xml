@@ -11,4 +11,5 @@
   <buildtool_depend>python3-colcon-common-extensions</buildtool_depend>
   <exec_depend>python3-docker</exec_depend>
   <exec_depend>python3-sh</exec_depend>
+  <exec_depend>python3-vcstool</exec_depend>
 </package>
