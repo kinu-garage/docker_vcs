@@ -48,6 +48,7 @@ class DockerBuilderVCS():
     DEfAULT_DOCKERFILE = "Dockerfile"
     DEfAULT_DOCKERTAG = "dockerimg_built"
     DEfAULT_ENTRYPOINT_PTN = "entry*point.*sh"
+    TMPCONTEXT_PREFIX = "docker_vcs"
     TOPDIR_SRC = "src"  # This folder name seems requirement for Catkin
     _MSG_LIMITATION_SRC_LOCATION = "There may be usecases to use both 'volume_build' and 'path_repos', which is not yet covered as the need is unclear."
 
@@ -128,7 +129,13 @@ class DockerBuilderVCS():
                 list_str.append(raw_decoded_str.decode()) 
         return list_str
 
-    def _docker_build_exec_api(self, path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="", path_context=".", debug=False):
+    def _docker_build_exec_api(self,
+                               path_dockerfile,
+                               baseimg, outimg="",
+                               rm_intermediate=True,
+                               entrypt_bin="",
+                               path_context=".",
+                               debug=False):
         """
         @brief Execute docker Python API via its lower-level API.
         @param path_context: Path of the directory'path_dockerfile' is located in.
@@ -136,11 +143,11 @@ class DockerBuilderVCS():
         result = False
         dockerfile = os.path.basename(path_dockerfile)
         logging.info("Current dir before docker build: {}, dockerfile: {}".format(os.path.abspath(os.path.curdir), dockerfile))
-        
-        dck_api = docker.APIClient()
+
+        docker_api = docker.APIClient()
 
         #fobj = BytesIO(dockerfile.encode('utf-8'))
-        responses = [line for line in dck_api.build(
+        responses = [line for line in docker_api.build(
             buildargs={"BASE_DIMG": baseimg,
                        "ENTRY_POINT": entrypt_bin,
                        "WS_IN_CONTAINER": self._workspace_in_container},
@@ -159,23 +166,33 @@ class DockerBuilderVCS():
                 logging.info(line)
         return result
 
-    def _docker_build_exec_noapi(self, path_dockerfile, baseimg, outimg="", rm_intermediate=True, entrypt_bin="", debug=False):
+    def _docker_build_exec_noapi(
+            self,
+            path_dockerfile,
+            baseimg,
+            outimg="",
+            rm_intermediate=True,
+            path_context=".",
+            entrypt_bin="",
+            debug=False):
         """
-        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability.
-        @brief Execute docker Python API via its lower-level API.
+        @brief Execute docker Python API via its "Object-oriented API" i.e. non-low-level/RESTful API.
+        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability. 
+            - 20220324 What's wrong with the non-low-level API? All args passed to '_docker_build_exec_api' can be taken by OO API AFAIK.
         """
-        img, _log = self._docker_client.images.build(
+        img, responses = self._docker_client.images.build(
             dockerfile=os.path.basename(path_dockerfile),
             buildargs={"BASE_DIMG": baseimg,
-                       "ENTRY_POINT": entrypt_bin,
-                       "WS_IN_CONTAINER": self._workspace_in_container},
-            path=".",
+                       "ENTRY_POINT": entrypt_bin},
+            path=path_context,
             quiet=debug,
-            rm=True,
+            rm=rm_intermediate,
             tag=outimg
         )
-        return _log
-
+        # TODO Parse 'responses' object:  <itertools._tee object at 0x7fa75c026bc0>
+        logging.info("docker build responses: {}".format(responses))        
+        return img
+    
     def _docker_run(self, dimage, cmd, envvars=None):
         """
         @param cmd: A string of command that is passed to `bash -c`.
@@ -215,8 +232,11 @@ class DockerBuilderVCS():
                 #abs_path_dest = dest_dir if os.path.isabs(dest_dir) else os.path.join(dest_dir, path)
                 abs_path_dest = os.path.join(dest_dir, os.path.basename(src_file_path))
                 #os.makedirs(abs_path_dest, exist_ok=True)
-                logging.info("Dir '{}' (absolute: {}) to be copied into: '{}'".format(src_file_path, abs_path_src, abs_path_dest))
-                shutil.copytree(os.path.abspath(src_file_path), abs_path_dest)
+                try:
+                    shutil.copytree(os.path.abspath(src_file_path), abs_path_dest)
+                    logging.info("Dir '{}' (absolute: {}) to be copied into: '{}'".format(src_file_path, abs_path_src, abs_path_dest))
+                except FileExistsError as e:
+                    logging.info("Skipped copying as dir '{}' already exists in destination '{}'".format(src_file_path, abs_path_dest))                    
             else:
                 shutil.copy2(src_file_path, dest_dir)
         logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(dest_dir)))
@@ -224,7 +244,13 @@ class DockerBuilderVCS():
 
     def docker_build(
             self,
-            path_dockerfile, baseimg, outimg="", rm_intermediate=True, tag=DEfAULT_DOCKERTAG, entrypt_bin="entry_point.bash", debug=False):
+            path_dockerfile,
+            baseimg,
+            outimg="",
+            rm_intermediate=True,
+            tag=DEfAULT_DOCKERTAG,
+            entrypt_bin="entry_point.bash",
+            debug=False):
         """
         @brief Run 'docker build' using 'lower API version' https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build.
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
@@ -244,7 +270,7 @@ class DockerBuilderVCS():
         logging.debug("Current dir before docker build: {}".format(os.path.abspath(os.path.curdir)))
 
         try:
-            result = self._docker_build_exec_api(
+            result = self._docker_build_exec_noapi(
                 path_dockerfile, baseimg, outimg=tag, rm_intermediate=False, debug=debug)
         except docker.errors.BuildError as e:
             logging.error("'docker build' failed: {}".format(str(e)))
@@ -278,7 +304,7 @@ class DockerBuilderVCS():
         container.commit(docker_img)
         # TODO Terminate the container?
 
-    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", filename_entrypt_exec="", debug=False):
+    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", filename_entrypt_exec="", debug=False, tmp_context_path=""):
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param filename_entrypt_exec: Path to the executable used in a Dockerfile.
@@ -306,7 +332,15 @@ class DockerBuilderVCS():
         # 2. vcs import to clone all vcs repos locally.
         # 3. Copy resources into the temporary target dir.
         tobe_copied = [path_dockerfile]
-        tmp_docker_context_dir = "/tmp/{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        if filename_entrypt_exec:
+            tobe_copied.append(filename_entrypt_exec)
+        if not tmp_context_path:
+            tmp_docker_context_dir = "/tmp/{}_{}".format(
+                self.TMPCONTEXT_PREFIX,
+                datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        else:
+            tmp_docker_context_dir = tmp_context_path
+        
         # Appending resources to be copied into Docker. For now
         if self._user_args.path_repos:
             logging.info("'path_repos' is set. Clone locally from the repositories defined in the given .repos file.")
@@ -323,7 +357,7 @@ class DockerBuilderVCS():
             if not self._user_args.volume_build.endswith(self.TOPDIR_SRC):
                 logging.info("The mounted top dir name '{}' is not 'src', then not adding the top dir to tobe_copied.".format(self._user_args.volume_build))
                 for f in os.listdir(self._user_args.volume_build):
-                    self.copy(f, tmp_dockercontext_srcdir)
+                    self.copy(f, tmp_docker_context_dir)
             tobe_copied.append(self._user_args.volume_build)
         self.copy(tobe_copied, tmp_docker_context_dir)
         os.chdir(tmp_docker_context_dir)
@@ -348,6 +382,7 @@ class DockerBuilderVCS():
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
+        parser.add_argument("--tmp_context_path", help="Absolute path for the temporary context path docker_vcs creates (TBD we need a specific name for that). This option can save exec time, and is primarily helpful in docker_vcs' subsequent runs after the 1st run where you don't want to keep generating the temp folder. Double-quote the value from bash console.", default="")
         parser.add_argument("--workspace_in_container", help="Workspace where the software obtained from vcs will be copied into. Also by default install space will be under this dir.", default="/cws")
         parser.add_argument("--workspace_on_host", help="Current dir, as Docker's context shouldn't change in order for Dockerfile to be accessible.", default=".")
         gr_src_to_build = parser.add_mutually_exclusive_group()
@@ -367,7 +402,7 @@ class DockerBuilderVCS():
     #        log_file=args.log_file,
     #        push_cloud=args.push_cloud,
     #    )
-        return self.build(args.docker_base_img, args.dockerfile, args.entrypoint_exec, args.debug)
+        return self.build(args.docker_base_img, args.dockerfile, args.entrypoint_exec, args.debug, args.tmp_context_path)
 
 
 if __name__ == '__main__':
