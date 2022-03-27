@@ -248,6 +248,7 @@ class DockerBuilderVCS():
             baseimg,
             outimg="",
             rm_intermediate=True,
+            path_context=".",
             tag=DEfAULT_DOCKERTAG,
             entrypt_bin="entry_point.bash",
             debug=False):
@@ -271,7 +272,7 @@ class DockerBuilderVCS():
 
         try:
             result = self._docker_build_exec_noapi(
-                path_dockerfile, baseimg, outimg=tag, rm_intermediate=False, debug=debug)
+                path_dockerfile, baseimg, outimg=tag, rm_intermediate=False, path_context=path_context, debug=debug)
         except docker.errors.BuildError as e:
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
@@ -304,7 +305,7 @@ class DockerBuilderVCS():
         container.commit(docker_img)
         # TODO Terminate the container?
 
-    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", filename_entrypt_exec="", debug=False, tmp_context_path=""):
+    def build(self, base_docker_img=DEfAULT_DOCKER_IMG, path_dockerfile="", filename_entrypt_exec="", debug=False, tmp_context_path="", path_context="."):
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param filename_entrypt_exec: Path to the executable used in a Dockerfile.
@@ -363,7 +364,13 @@ class DockerBuilderVCS():
         os.chdir(tmp_docker_context_dir)
 
         logging.info("path_dockerfile: {}, base_docker_img: {}, tmp Docker context dir: {}".format(path_dockerfile, base_docker_img, tmp_docker_context_dir))
-        self.docker_build(path_dockerfile, base_docker_img, rm_intermediate=False, entrypt_bin=filename_entrypt_exec, debug=debug)
+        self.docker_build(
+            path_dockerfile,
+            base_docker_img,
+            rm_intermediate=False,
+            path_context=path_context,
+            entrypt_bin=filename_entrypt_exec,
+            debug=debug)
         
         return True
 
@@ -380,6 +387,7 @@ class DockerBuilderVCS():
         parser.add_argument("--docker_image_tag", help="Tag for the Docker image to be built. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERTAG))
         parser.add_argument("--entrypoint_exec", help="Path to the executable used in '--dockerfile'. If empty, a file with the given name will be sought in the same path as '--dockerfile'.")
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
+        parser.add_argument("--path_context", help="Path of Docker context", default=".")    
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
         parser.add_argument("--tmp_context_path", help="Absolute path for the temporary context path docker_vcs creates (TBD we need a specific name for that). This option can save exec time, and is primarily helpful in docker_vcs' subsequent runs after the 1st run where you don't want to keep generating the temp folder. Double-quote the value from bash console.", default="")
@@ -402,7 +410,7 @@ class DockerBuilderVCS():
     #        log_file=args.log_file,
     #        push_cloud=args.push_cloud,
     #    )
-        return self.build(args.docker_base_img, args.dockerfile, args.entrypoint_exec, args.debug, args.tmp_context_path)
+        return self.build(args.docker_base_img, args.dockerfile, args.entrypoint_exec, args.debug, args.tmp_context_path, args.path_context)
 
 
 if __name__ == '__main__':
