@@ -7,7 +7,7 @@ ARG ENTRY_POINT=entry_point.bash
 # Re-defining ROSDISTRO, as 'ARG's need to be defined after FROM, except the one meant to be passed to FROM https://stackoverflow.com/a/63086565/577001
 ARG ROSDISTRO="noetic"
 ARG UBUNTU_DISTRO=focal
-ARG PATH_REPOS
+ARG PATH_REPOS_FILE
 ARG WS_IN_CONTAINER
 
 RUN echo "DEBUG: ${ROSDISTRO}"
@@ -52,6 +52,7 @@ ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_P
 RUN locale-gen en_US.UTF-8
 ENV LANG en_US.UTF-8
 
+ENV USERNAME=devsamll
 ARG USERID=1000
 RUN adduser -u $USERID --gecos "Development User" --disabled-password $USERNAME \
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USERNAME/.bashrc
@@ -65,7 +66,7 @@ WORKDIR /home/$USERNAME
 ## && rm /tmp/default.tar.gz
 
 #Download and compile workspace
-COPY $PATH_REPOS $WS_IN_CONTAINER/src/cws.repos
+COPY $PATH_REPOS_FILE $WS_IN_CONTAINER/src/cws.repos
 # This fixed dir permission issue but not sure if we want to do this. Sincd docker container runs as root by default this might be just fine?
 USER root
 RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src && vcs import --debug --skip-existing $WS_IN_CONTAINER/src < $WS_IN_CONTAINER/src/cws.repos

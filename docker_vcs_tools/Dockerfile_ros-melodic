@@ -1,13 +1,15 @@
 ARG BASE_DIMG
 FROM ${BASE_DIMG}
 
+ARG ENTRY_POINT="."
+
 SHELL ["/bin/bash", "-c"]
 
 ARG ENTRY_POINT=entry_point.bash
 # Re-defining ROSDISTRO, as 'ARG's need to be defined after FROM, except the one meant to be passed to FROM https://stackoverflow.com/a/63086565/577001
 ARG ROSDISTRO="melodic"
 ARG UBUNTU_DISTRO=bionic
-ARG PATH_REPOS
+ARG PATH_REPOS_FILE
 ARG WS_IN_CONTAINER
 
 RUN echo "DEBUG: ${ROSDISTRO}"
@@ -17,13 +19,10 @@ ENV DEBIAN_FRONTEND noninteractive
 
 # Need these before sources can be set up
 RUN apt-get update \
- # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
- && apt install -y gnupg2 \
- # Keys for ros.org
- && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
+ && echo "Otherwise key issue occurs https://stackoverflow.com/questions/50757647" && apt install -y gnupg2 wget \
+ && echo "Keys for ros.org" && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
  && apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 \
- # setup keys and sources for official Gazebo debian packages
- && apt-key adv --keyserver ha.pool.sks-keyservers.net --recv-keys D2486D2DD83DB69272AFE98867170598AF249743 \
+ && wget https://packages.osrfoundation.org/gazebo.key -O - | sudo apt-key add - \
  && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -52,6 +51,7 @@ ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_P
 RUN locale-gen en_US.UTF-8
 ENV LANG en_US.UTF-8
 
+ENV USERNAME=devsmall
 ARG USERID=1000
 RUN adduser -u $USERID --gecos "Development User" --disabled-password $USERNAME \
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USERNAME/.bashrc
@@ -65,10 +65,10 @@ WORKDIR /home/$USERNAME
 ## && rm /tmp/default.tar.gz
 
 #Download and compile workspace
-COPY $PATH_REPOS $WS_IN_CONTAINER/src/cws.repos
+COPY $PATH_REPOS_FILE $WS_IN_CONTAINER/src/cws.repos
 # This fixed dir permission issue but not sure if we want to do this. Sincd docker container runs as root by default this might be just fine?
 USER root
-RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src && vcs import --debug --skip-existing $WS_IN_CONTAINER/src < $WS_IN_CONTAINER/src/cws.repos
+RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src
 # Workaround for apt cannot be run https://stackoverflow.com/a/57930100/577001
 USER root
 RUN echo "DEBUG: ${ROSDISTRO}" \
@@ -76,10 +76,10 @@ RUN echo "DEBUG: ${ROSDISTRO}" \
     && cd $WS_IN_CONTAINER \
     && sudo apt update && rosdep update && rosdep install -y --from-paths src --ignore-src \
     && echo "Tentative before settles https://answers.ros.org/question/374424"; apt install -y python3-colcon-common-extensions \
-    && colcon build
+    && colcon build -v
 USER $USERNAME
 
 # setup entrypoint
-COPY ./entry_point.bash /
+COPY $ENTRY_POINT/entry_point.bash /
 ENTRYPOINT ["/entry_point.bash"]
 CMD ["bash"]
