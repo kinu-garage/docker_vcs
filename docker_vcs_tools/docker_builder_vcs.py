@@ -223,12 +223,27 @@ class DockerBuilderVCS():
             'docker.APIClient.build' with a 'decode=True'.
         @return [str] build_result decoded into a list of str.
         """
-        logging.info("Received obj in parse_build_result_dict: {}".format(build_result))
+        TRIM_PREFIX = "{'stream': '"
+        TRIM_SUFFIX = "'}"
+        logging.debug("Received obj in parse_build_result_dict: {}".format(build_result))
         lines = []
         for line in build_result:
-#            if line == "'stream': '\n'":  # Skipping a meaningless line
-#                continue
-            lines.append(line["stream"])
+            logging.debug("Received line: {}".format(line))
+            #if "{'stream': '\n'}" == line:
+                # Skipping a line that only contains meaningless info.
+            #    continue
+            logging.debug("Type of obj: {}".format(type(line)))
+            logging.debug("keys: {}, vals: {}".format(line.keys(), line.values()))
+            for k, v in line.items():
+                # Trim JSON pre/suffixes.
+                # TODO This impl isn't clean nor versatile yet.
+                #line_clean = v[v.index(TRIM_PREFIX)+len(TRIM_PREFIX):v.index(TRIM_SUFFIX)-1]
+
+                # Skipping meaningless line.
+                if '\n' == v:
+                    continue
+                lines.append(v)
+        return lines
                 
     @staticmethod
     def _consturct_buildargs(args):
