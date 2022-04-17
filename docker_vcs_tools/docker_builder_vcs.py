@@ -97,6 +97,11 @@ class OsUtil():
         try:
             logging.info("Saving from '{}', to '{}'".format(src_path, dest_abs_path))
             if os.path.isfile(src_path):
+                # copyfile needs the destination path already exists, so making
+                # one here if it doesn't exist. 
+                if not os.path.exists(path_root_backup):
+                    os.makedirs(path_root_backup)
+
                 shutil.copyfile(src_path, dest_abs_path)
             else:
                 logging.info("'{}' is not a file. Copying it to '{}'".format(src_path, dest_abs_path))
@@ -274,6 +279,7 @@ class DockerBuilderVCS():
         """
         @brief Execute docker Python API via its lower-level API.
         @param path_context: Path of the directory'path_dockerfile' is located in.
+        @return 
         """
         result = False
         dockerfile = os.path.basename(path_dockerfile)
@@ -295,15 +301,7 @@ class DockerBuilderVCS():
         )]
         logging.debug("docker build responses: {}".format(responses))
         #str_responses = self.parse_build_result(responses)
-        str_responses = responses
-        if str_responses:
-            result = True
-        res_lines = DockerBuilderVCS.parse_build_result_dict(str_responses)
-        line_counter = 0
-        for line in res_lines:
-            logging.info("Line#{}: {}".format(line_counter, line))
-            line_counter += 1
-        return result
+        return responses
         
     def _docker_build_oo(
         self,
@@ -325,7 +323,7 @@ class DockerBuilderVCS():
         """
         buildargs = self._consturct_buildargs(self._runtime_args)
 
-        img, _log = self._docker_client.images.build(
+        _log = self._docker_client.images.build(
             dockerfile=os.path.basename(path_dockerfile),
             buildargs=buildargs,
             #path=tmpwork_dir,
@@ -337,7 +335,7 @@ class DockerBuilderVCS():
         )
         # TODO Parse 'responses' object:  <itertools._tee object at 0x7fa75c026bc0>
         logging.info("docker build responses: {}".format(responses))        
-        return img, _log
+        return _log
     
     def _docker_run(self, dimage, cmd, envvars=None):
         """
@@ -412,7 +410,7 @@ class DockerBuilderVCS():
         _log = None
         try:
             #dimg, _log = self._docker_build_oo(
-            dimg, _log = self._docker_build_low_api(
+            _log = self._docker_build_low_api(
                 path_dockerfile, baseimg,
                 network_mode=network_mode,
                 path_repos_file=path_repos_file,
@@ -426,10 +424,11 @@ class DockerBuilderVCS():
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
         finally:
-            if _log:
-                for line in _log:
-                    if 'stream' in line:
-                        logging.error(line['stream'].strip())
+            res_lines = DockerBuilderVCS.parse_build_result_dict(_log)
+            line_counter = 0
+            for line in res_lines:
+                logging.info("Line#{}: {}".format(line_counter, line))
+                line_counter += 1
 
     def docker_readlog(self, logobj):
         """
@@ -488,16 +487,21 @@ class DockerBuilderVCS():
 
         # Copy the resources that are meant to be copied into
         # the to-be-generated Docker image into the temp location.
+
+        # TODO Check if '--tmp_context_path' is a valid path.
+
         tobe_copied = [path_dockerfile, entrypt_bin]
         tmp_context_path = "/tmp/docker_vcs_{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
         if self._runtime_args.path_repos_file:
             tobe_copied.append(self._runtime_args.path_repos_file)
         elif self._runtime_args.volume_build:
-            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(self._runtime_args.volume_build))
+            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(
+                self._runtime_args.volume_build))
             if not self._runtime_args.volume_build.endswith(self.TOPDIR_SRC):
-                logging.info("The mounted top dir name '{}' is not 'src', then not adding the top dir to tobe_copied.".format(self._runtime_args.volume_build))
+                logging.info("The mounted top dir name '{}' is not '{}', then not adding the top dir to tobe_copied.".format(
+                    self._runtime_args.volume_build, self.TOPDIR_SRC))
                 for f in os.listdir(self._runtime_args.volume_build):
-                    self.copy(f, tmp_docker_context_dir)
+                    OsUtil.copy(f, tmp_context_path)
             tobe_copied.append(self._runtime_args.volume_build)
         # Copying files
         for f in tobe_copied:
