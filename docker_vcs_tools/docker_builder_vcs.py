@@ -293,6 +293,7 @@ class DockerBuilderVCS():
             buildargs=buildargs,
             dockerfile=dockerfile,
         #    fileobj=fobj,
+            network_mode=network_mode,
             path=tmpwork_dir,
             quiet=debug,
             rm=rm_intermediate,
