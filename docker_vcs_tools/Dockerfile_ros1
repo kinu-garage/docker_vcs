@@ -33,7 +33,7 @@ RUN apt update && apt install -y \
     git \
     locales \
     psmisc \
-#    python3-colcon-common-extensions \
+    python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
     wget \
@@ -58,12 +58,6 @@ RUN adduser -u $USERID --gecos "Development User" --disabled-password $USERNAME 
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USERNAME/.bashrc
 USER $USERNAME
 WORKDIR /home/$USERNAME
-
-# Get gazebo models early since it is big
-##RUN wget -P /tmp/ https://github.com/osrf/gazebo_models/archive/master.zip \
-## && mkdir -p $HOME/.gazebo/models \
-## && tar -xvf /tmp/default.tar.gz -C $HOME/.gazebo/models --strip 1 \
-## && rm /tmp/default.tar.gz
 
 #Download and compile workspace
 COPY $PATH_REPOS_FILE $WS_IN_CONTAINER/src/cws.repos
