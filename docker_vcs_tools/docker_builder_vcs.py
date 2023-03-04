@@ -498,7 +498,8 @@ class DockerBuilderVCS():
             raise NotImplementedError("'--volume' option is not yet implemented.")
         elif self._runtime_args.volume_build:
             # Despite the name 'volume', copy operation is done in this block.
-            # During docker build, docker volume is not mounted, so copying.
+            # That is because, 'docker build' along with this program does NOT
+            # mount the volume specified unlike 'docker run'.
             logging.info(
                 """Arg '--volume_build' is set. All files and folders under the
                 volume dir '{}' are to be copied into the workspace in the Docker image.""".format(self._runtime_args.volume_build))
@@ -568,9 +569,9 @@ class DockerBuilderVCS():
                                your 'Dockerfile'. Mutually exclusive with
                                '--path_repos_file' and '--volume_build'.{}""".format(_MSG_LIMITATION_VOLUME))
         gr_src_to_build.add_argument("--volume_build", help="""
-                               The path to be bound as volume mount. Sources in
-                               this path will be targeted to build into Docker
-                               container. {} {}""".format(_MSG_LIMITATION_VOLUME, self._MSG_LIMITATION_SRC_LOCATION))
+                               The files/directories in the given path will be
+                               copied into the resulted Docker image. 'volume'
+                               may be a misleading name. {} {}""".format(_MSG_LIMITATION_VOLUME, self._MSG_LIMITATION_SRC_LOCATION))
         # Purely optional args
         parser.add_argument("--debug", help="Disabled by default.", action="store_true")
         parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default=".")
@@ -578,7 +579,15 @@ class DockerBuilderVCS():
         parser.add_argument("--network_mode", help="Same options are available for networking mode for the 'docker run' command", default="bridge")
         parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
         parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
-        parser.add_argument("--tmp_context_path", help="Absolute path for the temporary context path docker_vcs creates (TBD we need a specific name for that). This option can save exec time, and is primarily helpful in docker_vcs' subsequent runs after the 1st run where you don't want to keep generating the temp folder. Double-quote the value from bash console.", default="")
+        parser.add_argument("--tmp_context_path",
+                            help="""
+                            Absolute path for the temporary context path
+                            docker_vcs creates (TBD we need a specific name for
+                            that). This option can save exec time, and is
+                            primarily helpful in docker_vcs' subsequent runs
+                            after the 1st run where you don't want to keep
+                            generating the temp folder. Double-quote the value
+                            from bash console.""", default="")
 
         args = parser.parse_args()
         self.init(args)
