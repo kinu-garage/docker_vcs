@@ -18,13 +18,13 @@ ENV DEBIAN_FRONTEND noninteractive
 # Need these before sources can be set up
 RUN apt update -qq \
  # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
- && apt install -y gnupg2 \
+ && apt install -y gnupg2 wget \
  # Keys for ros.org
  && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
  && apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 \
  # setup keys and sources for official Gazebo debian packages
- && apt-key adv --keyserver ha.pool.sks-keyservers.net --recv-keys D2486D2DD83DB69272AFE98867170598AF249743 \
- && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
+ && wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # install OS tools. TBD This dependency better to be contained in a pkg.
@@ -36,7 +36,6 @@ RUN apt update -qq && apt install -y \
     python3-colcon-common-extensions \
     python3-rosdep \
     python3-vcstool \
-    wget \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
