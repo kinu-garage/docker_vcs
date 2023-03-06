@@ -131,7 +131,7 @@ class DockerBuilderVCS():
         except (docker.errors.APIError, docker.errors.TLSParameterError) as e:
             logging.error(str(e))
             exit(1)
-        pass
+        self._path_current_working = os.getcwd()
 
     def docker_login():
         try:
@@ -186,7 +186,8 @@ class DockerBuilderVCS():
         """
         not_found = []
         for path in paths:
-            if path and (not os.path.isfile(path)):
+            logging.debug("check_prerequisite: path: {}".format(path))
+            if path and (not os.path.exists(path)):
                 not_found.append(path)
         if not_found:
             raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
@@ -273,6 +274,7 @@ class DockerBuilderVCS():
         debug=False):
         """
         @brief Execute docker Python API via its lower-level API.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         @param path_context: Path of the directory'path_dockerfile' is located in.
         """
         result = False
@@ -398,6 +400,7 @@ class DockerBuilderVCS():
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
         @param tag: Tag for the Docker image to be built.
         @param entrypt_bin: Not implemented yet. Needs implemented to inject entrypoint in the built Docker img.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         """
         # Some verification for args.
         if not path_dockerfile:
@@ -412,7 +415,7 @@ class DockerBuilderVCS():
         _log = None
         try:
             #dimg, _log = self._docker_build_oo(
-            dimg, _log = self._docker_build_low_api(
+            dimg = self._docker_build_low_api(
                 path_dockerfile, baseimg,
                 network_mode=network_mode,
                 path_repos_file=path_repos_file,
@@ -466,10 +469,11 @@ class DockerBuilderVCS():
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param entrypt_bin: Path to the executable used in a Dockerfile.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         """
         if not entrypt_bin:
             try:
-                entrypt_bin = BuilderVCSUtil.get_path(entrypt_bin)
+                entrypt_bin = DockerBuilderVCSUtil.get_path(entrypt_bin)
             except FileNotFoundError as e:
                 loggin.warn("""
                     Entrypoint executable not passed, nor any files with 
@@ -477,6 +481,10 @@ class DockerBuilderVCS():
                     e.g. if entrypoint is not used in Dockerfile, this won't
                     cause any error. Limitation tracked: https://github.com/130s/docker_vcstool/issues/5
                     \n{}""".format(str(e)))
+        elif entrypt_bin == ".":
+            # Get abs path of current dir.
+            entrypt_bin = self._path_current_working
+
         # If prerequisite not met, exit the entire process.
         try:
             self.check_prerequisite([path_dockerfile, entrypt_bin])
@@ -549,7 +557,7 @@ class DockerBuilderVCS():
         parser = argparse.ArgumentParser(description=DESC_DBUILDER)
         # Optional but close to required args
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
-        parser.add_argument("--docker_out_img", help="Entire path of the Docker image ot be built.", default=".")
+        parser.add_argument("--docker_out_tag", help="Entire path of the Docker image tag to be built.", default="")
         parser.add_argument("--dockerfile", default=DockerBuilderVCS.DEfAULT_DOCKERFILE,
                             help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
         parser.add_argument("--workspace_in_container", help="Workspace where the software obtained from vcs will be copied into. Also by default install space will be under this dir.", default="/cws")
@@ -599,7 +607,7 @@ class DockerBuilderVCS():
         return self.generate_dockerimg(
             base_docker_img=args.docker_base_img,
             network_mode=args.network_mode,
-            outimg=args.docker_out_img,
+            outimg=args.docker_out_tag,
             path_dockerfile=args.dockerfile,
             debug=args.debug,
             entrypt_bin=args.entrypoint_exec,
