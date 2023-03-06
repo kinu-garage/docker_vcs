@@ -16,7 +16,7 @@ RUN echo "DEBUG: ${ROSDISTRO}"
 ENV DEBIAN_FRONTEND noninteractive
 
 # Need these before sources can be set up
-RUN apt update \
+RUN apt update -qq \
  # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
  && apt install -y gnupg2 \
  # Keys for ros.org
@@ -28,7 +28,7 @@ RUN apt update \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # install OS tools. TBD This dependency better to be contained in a pkg.
-RUN apt update && apt install -y \
+RUN apt update -qq && apt install -y \
     bash-completion \
     git \
     locales \
@@ -69,7 +69,7 @@ USER root
 RUN echo "DEBUG: ${ROSDISTRO}" \
     && source /opt/ros/${ROSDISTRO}/setup.bash \
     && cd $WS_IN_CONTAINER \
-    && sudo apt update && rosdep update && rosdep install -y --from-paths src --ignore-src \
+    && sudo apt update -qq && rosdep update && rosdep install -y --from-paths src --ignore-src \
     && echo "Tentative before settles https://answers.ros.org/question/374424"; apt install -y python3-colcon-common-extensions \
     && colcon build
 USER $USERNAME
