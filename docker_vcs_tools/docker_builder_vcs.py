@@ -290,6 +290,7 @@ class DockerBuilderVCS():
             dockerfile=dockerfile,
         #    fileobj=fobj,
             path=tmpwork_dir,
+            pull=True,
             quiet=debug,
             rm=rm_intermediate,
             tag=outimg,
@@ -333,6 +334,7 @@ class DockerBuilderVCS():
             #path=tmpwork_dir,
             network_mode=network_mode,
             path=".",
+            pull=True,
             quiet=debug,
             rm=rm_intermediate,
             tag=outimg
