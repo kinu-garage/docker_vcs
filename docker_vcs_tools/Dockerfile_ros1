@@ -1,6 +1,8 @@
 ARG BASE_DIMG
 FROM ${BASE_DIMG}
 
+ARG ENTRY_POINT="."
+
 SHELL ["/bin/bash", "-c"]
 
 ARG ENTRY_POINT=entry_point.bash
@@ -74,6 +76,6 @@ RUN echo "DEBUG: ${ROSDISTRO}" \
 USER $USERNAME
 
 # setup entrypoint
-COPY ./entry_point.bash /
+COPY $ENTRY_POINT/entry_point.bash /
 ENTRYPOINT ["/entry_point.bash"]
 CMD ["bash"]
