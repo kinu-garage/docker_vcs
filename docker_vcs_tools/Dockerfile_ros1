@@ -7,8 +7,8 @@ SHELL ["/bin/bash", "-c"]
 
 ARG ENTRY_POINT=entry_point.bash
 # Re-defining ROSDISTRO, as 'ARG's need to be defined after FROM, except the one meant to be passed to FROM https://stackoverflow.com/a/63086565/577001
-ARG ROSDISTRO="melodic"
-ARG UBUNTU_DISTRO=bionic
+ARG ROSDISTRO="noetic"
+ARG UBUNTU_DISTRO=focal
 ARG PATH_REPOS_FILE
 ARG WS_IN_CONTAINER
 
@@ -18,22 +18,25 @@ RUN echo "DEBUG: ${ROSDISTRO}"
 ENV DEBIAN_FRONTEND noninteractive
 
 # Need these before sources can be set up
-RUN apt update \
- && echo "Do this before handling apt key, otherwise key issue occurs https://stackoverflow.com/questions/50757647" && apt install -y gnupg2 wget \
- && echo "Keys for ros.org" && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
+RUN apt update -qq \
+ # Otherwise key issue occurs https://stackoverflow.com/questions/50757647
+ && apt install -y gnupg2 wget \
+ # Keys for ros.org
+ && echo "deb http://packages.ros.org/ros/ubuntu $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/ros-latest.list \
  && apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 \
- && wget https://packages.osrfoundation.org/gazebo.key -O - | sudo apt-key add - \
- && echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main" > /etc/apt/sources.list.d/gazebo-latest.list \
+ # setup keys and sources for official Gazebo debian packages
+ && wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # install OS tools. TBD This dependency better to be contained in a pkg.
-RUN apt update && apt install -y \
+RUN apt update -qq && apt install -y \
     bash-completion \
     git \
     locales \
     psmisc \
     python3-colcon-common-extensions \
-    python-rosdep \
+    python3-rosdep \
     python3-vcstool \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -50,29 +53,24 @@ ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_P
 RUN locale-gen en_US.UTF-8
 ENV LANG en_US.UTF-8
 
-ENV USERNAME=devsmall
+ENV USERNAME=devsamll
 ARG USERID=1000
 RUN adduser -u $USERID --gecos "Development User" --disabled-password $USERNAME \
     && echo "export QT_X11_NO_MITSHM=1" >> /home/$USERNAME/.bashrc
 USER $USERNAME
 WORKDIR /home/$USERNAME
 
-# Get gazebo models early since it is big
-##RUN wget -P /tmp/ https://github.com/osrf/gazebo_models/archive/master.zip \
-## && mkdir -p $HOME/.gazebo/models \
-## && tar -xvf /tmp/default.tar.gz -C $HOME/.gazebo/models --strip 1 \
-## && rm /tmp/default.tar.gz
-
 #Download and compile workspace
 COPY $PATH_REPOS_FILE $WS_IN_CONTAINER/src/cws.repos
 # This fixed dir permission issue but not sure if we want to do this. Sincd docker container runs as root by default this might be just fine?
 USER root
-RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src
+RUN mkdir -p $WS_IN_CONTAINER/src && cd $WS_IN_CONTAINER && ls -lth $WS_IN_CONTAINER/src && vcs import --debug --skip-existing $WS_IN_CONTAINER/src < $WS_IN_CONTAINER/src/cws.repos
 # Workaround for apt cannot be run https://stackoverflow.com/a/57930100/577001
 USER root
 RUN echo "DEBUG: ${ROSDISTRO}" \
     && source /opt/ros/${ROSDISTRO}/setup.bash \
     && cd $WS_IN_CONTAINER \
+    && sudo apt update -qq && rosdep update && rosdep install -y --from-paths src --ignore-src \
     && echo "Tentative before settles https://answers.ros.org/question/374424"; apt install -y python3-colcon-common-extensions \
     && colcon build
 USER $USERNAME

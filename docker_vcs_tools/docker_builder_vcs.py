@@ -118,7 +118,7 @@ class DockerBuilderVCS():
     @summary See DESC_DBUILDER variable.
     """
     DEfAULT_DOCKER_IMG = "ubuntu:focal"
-    DEfAULT_DOCKERFILE = "Dockerfile"
+    DEfAULT_DOCKERFILE = "Dockerfile_ros1"
     DEfAULT_DOCKERTAG = "dockerimg_built"
     DEfAULT_ENTRYPOINT_PTN = "entry*point.*sh"
     TMPCONTEXT_PREFIX = "docker_vcs"
@@ -131,7 +131,7 @@ class DockerBuilderVCS():
         except (docker.errors.APIError, docker.errors.TLSParameterError) as e:
             logging.error(str(e))
             exit(1)
-        pass
+        self._path_current_working = os.getcwd()
 
     def docker_login():
         try:
@@ -186,7 +186,8 @@ class DockerBuilderVCS():
         """
         not_found = []
         for path in paths:
-            if path and (not os.path.isfile(path)):
+            logging.debug("check_prerequisite: path: {}".format(path))
+            if path and (not os.path.exists(path)):
                 not_found.append(path)
         if not_found:
             raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
@@ -273,6 +274,7 @@ class DockerBuilderVCS():
         debug=False):
         """
         @brief Execute docker Python API via its lower-level API.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         @param path_context: Path of the directory'path_dockerfile' is located in.
         """
         result = False
@@ -288,6 +290,7 @@ class DockerBuilderVCS():
             dockerfile=dockerfile,
         #    fileobj=fobj,
             path=tmpwork_dir,
+            pull=True,
             quiet=debug,
             rm=rm_intermediate,
             tag=outimg,
@@ -331,6 +334,7 @@ class DockerBuilderVCS():
             #path=tmpwork_dir,
             network_mode=network_mode,
             path=".",
+            pull=True,
             quiet=debug,
             rm=rm_intermediate,
             tag=outimg
@@ -398,6 +402,7 @@ class DockerBuilderVCS():
             See also  https://github.com/docker/docker-py/issues/1400#issuecomment-273682010 for why lower API.
         @param tag: Tag for the Docker image to be built.
         @param entrypt_bin: Not implemented yet. Needs implemented to inject entrypoint in the built Docker img.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         """
         # Some verification for args.
         if not path_dockerfile:
@@ -412,7 +417,7 @@ class DockerBuilderVCS():
         _log = None
         try:
             #dimg, _log = self._docker_build_oo(
-            dimg, _log = self._docker_build_low_api(
+            dimg = self._docker_build_low_api(
                 path_dockerfile, baseimg,
                 network_mode=network_mode,
                 path_repos_file=path_repos_file,
@@ -466,10 +471,11 @@ class DockerBuilderVCS():
         """
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param entrypt_bin: Path to the executable used in a Dockerfile.
+        @param outimg: Tag of Docker image to be built. See https://docker-py.readthedocs.io/en/stable/images.html
         """
         if not entrypt_bin:
             try:
-                entrypt_bin = BuilderVCSUtil.get_path(entrypt_bin)
+                entrypt_bin = DockerBuilderVCSUtil.get_path(entrypt_bin)
             except FileNotFoundError as e:
                 loggin.warn("""
                     Entrypoint executable not passed, nor any files with 
@@ -477,6 +483,10 @@ class DockerBuilderVCS():
                     e.g. if entrypoint is not used in Dockerfile, this won't
                     cause any error. Limitation tracked: https://github.com/130s/docker_vcstool/issues/5
                     \n{}""".format(str(e)))
+        elif entrypt_bin == ".":
+            # Get abs path of current dir.
+            entrypt_bin = self._path_current_working
+
         # If prerequisite not met, exit the entire process.
         try:
             self.check_prerequisite([path_dockerfile, entrypt_bin])
@@ -489,13 +499,24 @@ class DockerBuilderVCS():
         # Copy the resources that are meant to be copied into
         # the to-be-generated Docker image into the temp location.
         tobe_copied = [path_dockerfile, entrypt_bin]
-        tmp_context_path = "/tmp/docker_vcs_{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
+        tmp_context_path = "/tmp/docker_vcs_{}".format(
+            datetime.datetime.fromtimestamp(
+                time.time()).strftime('%Y%m%d%H%M%S'))
         if self._runtime_args.path_repos_file:
             tobe_copied.append(self._runtime_args.path_repos_file)
+        elif self._runtime_args.volume:
+            raise NotImplementedError("'--volume' option is not yet implemented.")
         elif self._runtime_args.volume_build:
-            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(self._runtime_args.volume_build))
+            # Despite the name 'volume', copy operation is done in this block.
+            # That is because, 'docker build' along with this program does NOT
+            # mount the volume specified unlike 'docker run'.
+            logging.info(
+                """Arg '--volume_build' is set. All files and folders under the
+                volume dir '{}' are to be copied into the workspace in the Docker image.""".format(self._runtime_args.volume_build))
             if not self._runtime_args.volume_build.endswith(self.TOPDIR_SRC):
-                logging.info("The mounted top dir name '{}' is not 'src', then not adding the top dir to tobe_copied.".format(self._runtime_args.volume_build))
+                logging.info(
+                    """The name of the top directory at the mounted path '{}'
+                    is not 'src', then not adding the top dir to tobe_copied.""".format(self._runtime_args.volume_build))
                 for f in os.listdir(self._runtime_args.volume_build):
                     self.copy(f, tmp_docker_context_dir)
             tobe_copied.append(self._runtime_args.volume_build)
@@ -527,33 +548,56 @@ class DockerBuilderVCS():
         return True
 
     def main(self):
-        _MSG_LIMITATION_VOLUME = ("For now this cannot be defined multiple times, as opposed to 'docker run' where multiple '-v's can be passed to."
-                                  "Therefore the value passed to this needs to be the ***top directory*** of all source folders to be built, e.g. 'src'.")
+        _MSG_LIMITATION_VOLUME = (
+            """
+            For now this cannot be defined multiple times, as opposed to
+            'docker run' where multiple '-v's can be passed to. Therefore the
+            value passed to this needs to be the ***top directory*** of all
+            source folders to be built, e.g. 'src'.
+            """)
 
         parser = argparse.ArgumentParser(description=DESC_DBUILDER)
-        ## For now assume dockerfile
-        # Optional args
-        parser.add_argument("--debug", help="Disabled by default.", action="store_true")
+        # Optional but close to required args
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
-        parser.add_argument("--dockerfile", help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
-        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default=".")
-        parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
-        parser.add_argument("--network_mode", help="Same options are available for networking mode for the 'docker run' command", default="bridge")
-        parser.add_argument("--docker_out_img", help="Entire path of the Docker image ot be built.", default=".")
-        parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
-        parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
-        parser.add_argument("--tmp_context_path", help="Absolute path for the temporary context path docker_vcs creates (TBD we need a specific name for that). This option can save exec time, and is primarily helpful in docker_vcs' subsequent runs after the 1st run where you don't want to keep generating the temp folder. Double-quote the value from bash console.", default="")
+        parser.add_argument("--docker_out_tag", help="Entire path of the Docker image tag to be built.", default="")
+        parser.add_argument("--dockerfile", default=DockerBuilderVCS.DEfAULT_DOCKERFILE,
+                            help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
         parser.add_argument("--workspace_in_container", help="Workspace where the software obtained from vcs will be copied into. Also by default install space will be under this dir.", default="/cws")
         parser.add_argument("--workspace_on_host", help="Current dir, as Docker's context shouldn't change in order for Dockerfile to be accessible.", default=".")
         gr_src_to_build = parser.add_mutually_exclusive_group()
-        gr_src_to_build.add_argument("--path_repos_file", help="Path to .repos file to clone and build in side the container/image.")
+        gr_src_to_build.add_argument("--path_repos_file",
+                                     help="""
+                                     Path to .repos file to clone and build in side the container.
+                                     Mutually exclusive with '--volume*'.""")
         gr_src_to_build.add_argument("--volume", help="""
-                               Not implemented yet. Bind volume mount. Unlike '--volume_build' option, this doesn't do anything but mounting.
-                               Anything you want to happen can be defined in your 'Dockerfile'.
-                               {}""".format(_MSG_LIMITATION_VOLUME))
+                               Not implemented yet. Bind volume mount.
+                               Unlike '--volume_build' option, this doesn't do
+                               anything but mounting. Useful for passing resource
+                               that is needed during the development onto a
+                               container (Anything you want to happen inside a
+                               container during build time can be defined in
+                               your 'Dockerfile'. Mutually exclusive with
+                               '--path_repos_file' and '--volume_build'.{}""".format(_MSG_LIMITATION_VOLUME))
         gr_src_to_build.add_argument("--volume_build", help="""
-                               The path to be bound as volume mount. Sources in this path will be targeted to build into Docker container.
-                               {} {}""".format(_MSG_LIMITATION_VOLUME, self._MSG_LIMITATION_SRC_LOCATION))
+                               The files/directories in the given path will be
+                               copied into the resulted Docker image. 'volume'
+                               may be a misleading name. {} {}""".format(_MSG_LIMITATION_VOLUME, self._MSG_LIMITATION_SRC_LOCATION))
+        # Purely optional args
+        parser.add_argument("--debug", help="Disabled by default.", action="store_true")
+        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default=".")
+        parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
+        parser.add_argument("--network_mode", help="Same options are available for networking mode for the 'docker run' command", default="bridge")
+        parser.add_argument("--push_cloud", help="If defined, not pushing the resulted Docker image to the cloud.", action="store_false")
+        parser.add_argument("--rm_intermediate", help="If False, the intermediate Docker images are not removed.", action="store_true")
+        parser.add_argument("--tmp_context_path",
+                            help="""
+                            Absolute path for the temporary context path
+                            docker_vcs creates (TBD we need a specific name for
+                            that). This option can save exec time, and is
+                            primarily helpful in docker_vcs' subsequent runs
+                            after the 1st run where you don't want to keep
+                            generating the temp folder. Double-quote the value
+                            from bash console.""", default="")
 
         args = parser.parse_args()
         self.init(args)
@@ -565,7 +609,7 @@ class DockerBuilderVCS():
         return self.generate_dockerimg(
             base_docker_img=args.docker_base_img,
             network_mode=args.network_mode,
-            outimg=args.docker_out_img,
+            outimg=args.docker_out_tag,
             path_dockerfile=args.dockerfile,
             debug=args.debug,
             entrypt_bin=args.entrypoint_exec,

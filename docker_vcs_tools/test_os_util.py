@@ -14,9 +14,10 @@ from docker_builder_vcs import OsUtil
 
 
 class TestOsUtil():
-    def test_copy(self):
+    def test_copy_equality(self):
         """
-        @summary: TBD
+        @summary: Verifies the list of files and dirs in the source dir
+            exist in the dest dir after the execution.
         """
         tmp_dir = "/tmp/{}_{}".format(
             type(self).__name__,
@@ -50,3 +51,10 @@ class TestOsUtil():
 
         # Verify the num of files are the same b/w src and dest dirs.
         assert len(os.listdir(path_folder_src)) == len(os.listdir(path_folder_dest))
+
+    def test_copy_duplicate(self):
+        """
+        @summary: Verifies there's no duplicate folder https://github.com/130s/docker_vcstool/issues/10
+        """
+        pass  # TODO
+        
