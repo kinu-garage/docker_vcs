@@ -29,4 +29,4 @@ jobs:
           && sudo apt update && sudo apt install python3-rosdep && sudo rosdep init && rosdep update \
           && rosdep install -r -y --from-paths . --ignore-src \
           && curl -o /tmp/upstream.repos $UPSTREAM_REPOS \
-          && ./docker_builder_vcs.py --dockerfile $DOCKERFILE --docker_base_img $DOCKER_BASEIMG --path_repos /tmp/upstream.repos --rm_intermediate --debug --path_context ./docker_vcs_tools 
+          && ./docker_vcs_tools/docker_builder_vcs.py --dockerfile $DOCKERFILE --docker_base_img $DOCKER_BASEIMG --path_repos /tmp/upstream.repos --rm_intermediate --debug --path_context ./docker_vcs_tools 
