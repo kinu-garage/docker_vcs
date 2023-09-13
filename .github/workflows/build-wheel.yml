@@ -1,0 +1,26 @@
+name: Build
+
+env:
+  DEST_DIR: wheelhouse
+on: [push, pull_request]
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, windows-2019, macOS-11]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Used to host cibuildwheel
+      - uses: actions/setup-python@v3
+
+      - name: Build wheels
+        run: pip wheel -w env.DEST_DIR .
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./env.DEST_DIR/*.whl
