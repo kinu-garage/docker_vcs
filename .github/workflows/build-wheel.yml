@@ -18,9 +18,13 @@ jobs:
       # Used to host cibuildwheel
       - uses: actions/setup-python@v3
 
+      - name: Install dependencies
+        run: python -m pip install --upgrade setuptools wheel
+
       - name: Build wheels
-        run: pip wheel -w env.DEST_DIR .
+        run: python3 setup.py bdist_wheel
 
       - uses: actions/upload-artifact@v3
         with:
-          path: ./env.DEST_DIR/*.whl
+          name: wheel-dist
+          path: dist
