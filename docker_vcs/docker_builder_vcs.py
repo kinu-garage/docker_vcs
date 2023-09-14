@@ -475,7 +475,7 @@ class DockerBuilderVCS():
                     Entrypoint executable not passed, nor any files with 
                     commonly used names are not found. This doesn't mean error,
                     e.g. if entrypoint is not used in Dockerfile, this won't
-                    cause any error. Limitation tracked: https://github.com/130s/docker_vcstool/issues/5
+                    cause any error. Limitation tracked: https://github.com/130s/docker_vcs/issues/5
                     \n{}""".format(str(e)))
         # If prerequisite not met, exit the entire process.
         try:

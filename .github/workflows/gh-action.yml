@@ -7,8 +7,8 @@ jobs:
     strategy:
       matrix:
         env:  # Using some early-adapter applications
-          - {UBUNTU_DISTRO: bionic, ROS_DISTRO: melodic, UPSTREAM_REPOS: 'https://raw.githubusercontent.com/130s/docker_vcstool/develop/.ci/test.repos', DOCKERFILE: 'Dockerfile_ros-melodic', DOCKER_BASEIMG: 'ros:melodic-ros-base'}
-          - {UBUNTU_DISTRO: focal, ROS_DISTRO: noetic, UPSTREAM_REPOS: 'https://raw.githubusercontent.com/130s/docker_vcstool/develop/.ci/test.repos', DOCKERFILE: 'Dockerfile_ros-noetic', DOCKER_BASEIMG: 'ros:noetic-ros-base'}
+          - {UBUNTU_DISTRO: bionic, ROS_DISTRO: melodic, UPSTREAM_REPOS: 'https://raw.githubusercontent.com/130s/docker_vcs/develop/.ci/test.repos', DOCKERFILE: 'Dockerfile_ros-melodic', DOCKER_BASEIMG: 'ros:melodic-ros-base'}
+          - {UBUNTU_DISTRO: focal, ROS_DISTRO: noetic, UPSTREAM_REPOS: 'https://raw.githubusercontent.com/130s/docker_vcs/develop/.ci/test.repos', DOCKERFILE: 'Dockerfile_ros-noetic', DOCKER_BASEIMG: 'ros:noetic-ros-base'}
     env:
       CCACHE_DIR: /github/home/.ccache # Directory for ccache (and how we enable ccache in industrial_ci)
     runs-on: ubuntu-latest
@@ -20,7 +20,7 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-${{ matrix.env.ROS_DISTRO }}-${{ matrix.env.ROS_REPO }}
       - uses: 'ros-industrial/industrial_ci@master'
-        env: ${{ matrix.env }}      
+        env: ${{ matrix.env }}
       - name: Run docker_vcs_tools
         env: ${{ matrix.env }}
         run: |
@@ -29,4 +29,4 @@ jobs:
           && sudo apt update && sudo apt install python3-rosdep && sudo rosdep init && rosdep update \
           && rosdep install -r -y --from-paths . --ignore-src \
           && curl -o /tmp/upstream.repos $UPSTREAM_REPOS \
-          && ./docker_vcs_tools/docker_builder_vcs.py --dockerfile $DOCKERFILE --docker_base_img $DOCKER_BASEIMG --path_repos /tmp/upstream.repos --rm_intermediate --debug --path_context ./docker_vcs_tools 
+          && ./docker_vcs/docker_builder_vcs.py --dockerfile $DOCKERFILE --docker_base_img $DOCKER_BASEIMG --path_repos /tmp/upstream.repos --rm_intermediate --debug --path_context ./docker_vcs

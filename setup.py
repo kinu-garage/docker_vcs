@@ -24,5 +24,5 @@ setup(
     license="Apach2",
     packages=find_packages(),
     package_data={package_name: ["config/example/*"]},
-    url="https://github.com/kinu-garage/docker_vcstool",
+    url="https://github.com/kinu-garage/docker_vcs",
 )
