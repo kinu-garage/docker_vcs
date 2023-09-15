@@ -10,7 +10,7 @@ setup(
     classifiers=[
         "Development Status :: 1 - Planning",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: Apache2 License",  
+        "License :: OSI Approved :: Apache Software License",
         "Operating System :: POSIX :: Linux",        
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.4",
@@ -21,7 +21,7 @@ setup(
                       "vcstool>=0.3.0",],
     name=package_name,
     maintainer_email="iisaito.saito@gmail.com",
-    license="Apach2",
+    license="Apach2.0",
     packages=find_packages(),
     package_data={package_name: ["config/example/*"]},
     url="https://github.com/kinu-garage/docker_vcs",
