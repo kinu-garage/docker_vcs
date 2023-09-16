@@ -1,5 +1,13 @@
+# Copyright (C) 2023 Kinu Garage
+# Licensed under Apache 2
+
+from pathlib import Path
 from setuptools import find_packages
 from setuptools import setup
+
+# For pkg discription https://packaging.python.org/en/latest/guides/making-a-pypi-friendly-readme/
+this_directory = Path(__file__).parent
+long_description_file = (this_directory / "README.md").read_text()
 
 name_pip_package = "docker_vcs"
 name_package_lib = "docker_vcs_lib"
@@ -26,6 +34,8 @@ setup(
     name=name_pip_package,
     maintainer_email="iisaito.saito@gmail.com",
     license="Apach2.0",
+    long_description=long_description_file,
+    long_description_content_type="text/markdown",
     packages=find_packages(),
     package_data={name_package_lib: ["config/example/*"]},
     url="https://github.com/kinu-garage/docker_vcs",
