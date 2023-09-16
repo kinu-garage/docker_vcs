@@ -5,7 +5,7 @@ name_pip_package = "docker_vcs"
 name_package_lib = "docker_vcs_lib"
 
 setup(
-    version="0.1.0",    
+    version="0.1.3",    
     author="Isaac Saito",
     author_email="iisaito.saito@gmail.com",
     classifiers=[
