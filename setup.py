@@ -1,7 +1,7 @@
 from setuptools import find_packages
 from setuptools import setup
 
-package_name = "docker_vcs_tools"
+name_package_lib = "docker_vcs_lib"
 
 setup(
     version="0.1.0",    
@@ -14,13 +14,18 @@ setup(
         "Operating System :: POSIX :: Linux",        
         "Programming Language :: Python :: 3",
     ],
+    entry_points={
+        'console_scripts': [
+            'docker_vcs = docker_vcs_lib.docker_vcs:main'
+        ],
+    },    
     description="A Python package that provides convenience utility for Docker, vcstool (another tool that provides utility for VCS), as well as rosdep.",
     install_requires=["docker>=5.0.3",
                       "vcstool>=0.3.0",],
-    name=package_name,
+    name=name_package_lib,
     maintainer_email="iisaito.saito@gmail.com",
     license="Apach2.0",
     packages=find_packages(),
-    package_data={package_name: ["config/example/*"]},
+    package_data={name_package_lib: ["config/example/*"]},
     url="https://github.com/kinu-garage/docker_vcs",
 )

@@ -575,8 +575,3 @@ class DockerBuilderVCS():
             debug=args.debug,
             entrypt_bin=args.entrypoint_exec,
             tmp_context_path=args.tmp_context_path)
-
-
-if __name__ == '__main__':
-    dockerbuilder = DockerBuilderVCS()
-    dockerbuilder.main()
