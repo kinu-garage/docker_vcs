@@ -1,6 +1,7 @@
 from setuptools import find_packages
 from setuptools import setup
 
+name_pip_package = "docker_vcs"
 name_package_lib = "docker_vcs_lib"
 
 setup(
@@ -22,7 +23,7 @@ setup(
     description="A Python package that provides convenience utility for Docker, vcstool (another tool that provides utility for VCS), as well as rosdep.",
     install_requires=["docker>=5.0.3",
                       "vcstool>=0.3.0",],
-    name=name_package_lib,
+    name=name_pip_package,
     maintainer_email="iisaito.saito@gmail.com",
     license="Apach2.0",
     packages=find_packages(),
