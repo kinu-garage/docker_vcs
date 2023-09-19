@@ -9,11 +9,11 @@ In the primarily intended usecases, `docker_vcs` takes in and out:
 
 `X.repos` is a `yaml`-formatted file where repositories can be listed. [vcstool](https://github.com/dirk-thomas/vcstool) can clone those repositories by batch. It allows you a systematic approach to define your software's dependency that consists of (multiple) software that is/are not available as a binary installer format.
 
-Operation to do these are relatively easily achieved by the combination of a few `docker` CLI commands on the host + `bash` CLI commands inside a Docker container. However, even such a set of commands can get tedious, and little things can be easilly missed in repeated processes. `docker_vcs` aims to make those trivial but tedious tasks easier and less error-prone.
+Operation to do these are relatively easily achieved by the combination of a few `docker` CLI commands on the host + `bash` CLI commands inside a Docker container. However, even such a set of commands can get tedious, and little things can be easily missed in repeated processes. `docker_vcs` aims to make those trivial but tedious tasks easier and less error-prone.
 
-## Usecases (UC)
+## Usecases
 
-Primary common UCs are as follows. In all UCs, you get a Docker image in the end:
+Primary common usecases (UC) are as follows. In all UCs, you get a Docker image in the end:
 
 - UC-1. You have `X.repos` file where a list of repositories the software you want to build and install are defined. You know which Docker image to build your software upon (aka "base" Docker image). The default build process will be applied to build your software.
 - UC-2. In addition to UC-1 (you have `X.repos` file), you also have `Dockerfile`, i.e. a custom sets of commands to execute in order to fulfill dependencies and/or build and/or install your software.
