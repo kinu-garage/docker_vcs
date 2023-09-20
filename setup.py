@@ -13,7 +13,7 @@ name_pip_package = "docker_vcs"
 name_package_lib = "docker_vcs_lib"
 
 setup(
-    version="0.1.4",    
+    version="0.1.8",    
     author="Isaac Saito",
     author_email="iisaito.saito@gmail.com",
     classifiers=[
@@ -29,9 +29,9 @@ setup(
         ],
     },    
     description="A Python package that provides convenience utility for Docker, vcstool (another tool that provides utility for VCS), as well as rosdep.",
-    install_requires=["docker>=5.0.3",
-                      "vcstool>=0.3.0",
-                      "sh"],
+    install_requires=["docker",
+                      "sh",
+                      "vcstool",],
     name=name_pip_package,
     maintainer_email="iisaito.saito@gmail.com",
     license="Apach2.0",
