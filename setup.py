@@ -13,7 +13,7 @@ name_pip_package = "docker_vcs"
 name_package_lib = "docker_vcs_lib"
 
 setup(
-    version="0.1.8",    
+    version="0.1.9",    
     author="Isaac Saito",
     author_email="iisaito.saito@gmail.com",
     classifiers=[
@@ -39,5 +39,6 @@ setup(
     long_description_content_type="text/markdown",
     packages=find_packages(),
     package_data={name_package_lib: ["config/example/*"]},
+    package_dir={'': 'src'},
     url="https://github.com/kinu-garage/docker_vcs",
 )
