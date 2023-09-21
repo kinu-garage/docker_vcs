@@ -13,6 +13,7 @@ from io import BytesIO
 import json
 import logging
 import os
+from requests.exceptions import ConnectionError
 import pathlib
 import sh
 import shlex
@@ -42,8 +43,15 @@ class DockerBuilderVCS():
     def __init__(self):
         try:
             self._docker_client = docker.from_env()
-        except (docker.errors.APIError, docker.errors.TLSParameterError) as e:
-            logging.error(str(e))
+        except (docker.errors.DockerException, docker.errors.APIError, docker.errors.TLSParameterError, ConnectionError) as e:
+            # Message hinted from https://github.com/osrf/rocker/pull/215
+            msg = ("Docker Client failed to connect to docker daemon."
+                   " Please verify that docker is installed and running,"
+                   " as well as that you have permission to access the docker daemon."
+                   " This happens usually by being a member of the docker group,"
+                   " also if this is run inside a Docker container (this module is intended to run outside of a container)."
+                   " Underlying error was:\n{}".format(str(e)))
+            logging.error(msg)
             exit(1)
         pass
 

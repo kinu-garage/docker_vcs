@@ -5,6 +5,9 @@
 
 from docker_vcs_lib.docker_builder_vcs import DockerBuilderVCS
 
-if __name__ == '__main__':
+def main():
     dockerbuilder = DockerBuilderVCS()
     dockerbuilder.main()
+
+if __name__ == '__main__':
+    main()
