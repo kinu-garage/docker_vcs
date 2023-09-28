@@ -103,10 +103,12 @@ class DockerBuilderVCS():
     @staticmethod
     def check_prerequisite(paths):
         """
+        @brief: If an element of 'paths' is not null, then see if there is a file at the path. 
         @type: [str] 
         @raise FileNotFoundError: When any input files are not found at the given path.
         """
         not_found = []
+        logging.debug("Paths: {}".format(paths))
         for path in paths:
             if path and (not os.path.isfile(path)):
                 not_found.append(path)
@@ -384,19 +386,20 @@ class DockerBuilderVCS():
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param entrypt_bin: Path to the executable used in a Dockerfile.
         """
-        if not entrypt_bin:
-            try:
-                entrypt_bin = BuilderVCSUtil.get_path(entrypt_bin)
-            except FileNotFoundError as e:
-                loggin.warn("""
+        entrypt_bin_abs = ""
+        if entrypt_bin:
+            entrypt_bin_abs = shutil.which(os.path.abspath(entrypt_bin))
+        else:
+            logging.warn("""
                     Entrypoint executable not passed, nor any files with 
-                    commonly used names are not found. This doesn't mean error,
+                    commonly used names are not found. This doesn't mean the tool should fail,
                     e.g. if entrypoint is not used in Dockerfile, this won't
                     cause any error. Limitation tracked: https://github.com/130s/docker_vcs/issues/5
-                    \n{}""".format(str(e)))
+                    """)
+        tobe_copied_into_container = [path_dockerfile, entrypt_bin_abs]
         # If prerequisite not met, exit the entire process.
         try:
-            self.check_prerequisite([path_dockerfile, entrypt_bin])
+            self.check_prerequisite(tobe_copied_into_container)
         except FileNotFoundError as e:
             logging.error(str(e))
             exit(1)
@@ -408,23 +411,22 @@ class DockerBuilderVCS():
 
         # TODO Check if '--tmp_context_path' is a valid path.
 
-        tobe_copied = [path_dockerfile, entrypt_bin]
         tmp_context_path = "/tmp/docker_vcs_{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
         if self._runtime_args.path_repos_file:
-            tobe_copied.append(self._runtime_args.path_repos_file)
+            tobe_copied_into_container.append(self._runtime_args.path_repos_file)
         elif self._runtime_args.volume_build:
             logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(
                 self._runtime_args.volume_build))
             if not self._runtime_args.volume_build.endswith(self.TOPDIR_SRC):
-                logging.info("The mounted top dir name '{}' is not '{}', then not adding the top dir to tobe_copied.".format(
+                logging.info("The mounted top dir name '{}' is not '{}', then not adding the top dir to tobe_copied_into_container.".format(
                     self._runtime_args.volume_build, self.TOPDIR_SRC))
                 for f in os.listdir(self._runtime_args.volume_build):
                     OsUtil.copy(f, tmp_context_path)
-            tobe_copied.append(self._runtime_args.volume_build)
+            tobe_copied_into_container.append(self._runtime_args.volume_build)
         # Copying files
-        for f in tobe_copied:
+        for f in tobe_copied_into_container:
             OsUtil.copy(f, tmp_context_path)
-        #self.copy(tmp_context_path, tobe_copied)
+        #self.copy(tmp_context_path, tobe_copied_into_container)
 
         # Someone said chdir-ing and running 'docker build' can be dangerous so
         # stop doing so. Instead, because 'docker build' can take the context
@@ -458,7 +460,7 @@ class DockerBuilderVCS():
         parser.add_argument("--debug", help="Disabled by default.", action="store_true")
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
         parser.add_argument("--dockerfile", help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
-        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default=".")
+        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default="")
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
         parser.add_argument("--network_mode", help="Same options are available for networking mode for the 'docker run' command", default="bridge")
         parser.add_argument("--docker_out_img", help="Entire path of the Docker image ot be built.", default=".")
