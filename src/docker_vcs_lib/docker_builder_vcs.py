@@ -55,16 +55,6 @@ class DockerBuilderVCS():
             exit(1)
         pass
 
-    def docker_login():
-        try:
-            # When pushing to cloud, log in to docker registry.
-            if self._push_cloud:
-               self._docker_client.login(
-                   username=docker_account, password=docker_pw, registry=docker_registry)
-        except (APIError, TLSParameterError) as e:
-            logging.error(str(e))
-            exit(1)
-
     def init(self, args):
         """
         @summary: Convenient funtion to read the 'args' to set the values to
@@ -108,35 +98,16 @@ class DockerBuilderVCS():
         @raise FileNotFoundError: When any input files are not found at the given path.
         """
         not_found = []
+        not_file = []
         logging.debug("Paths: {}".format(paths))
         for path in paths:
-            if path and (not os.path.isfile(path)):
-                not_found.append(path)
-        if not_found:
-            raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
-
-    @staticmethod
-    def parse_build_result(build_result):
-        """
-        @brief Decode the docker.APIClient.build() output, which has a tricky
-            data structure, to a list of str.
-         
-        @param build_result: [b"{str: str}]
-            A raw output from 'docker.APIClient.build' ('low-level API") may
-            look something like:
-                [b'{"stream":"Step 1/33 : ARG BASE_DIMG"}\r\n{"stream":"\\n"}\r\n
-                :
-                /etc/apt/sources.list.d/gazebo-latest.list  \\u0026\\u0026 apt-get clean \\u0026\\u0026 rm -rf /var/lib/apt/lists/*\' returned a non-zero code: 100"},"error":"The command \'/bin/bash -c apt-get update  \\u002 \\"deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main\\" \\u003e /etc/apt/sources.list.d/gazebo-latest.list  \\u0026\\u0026 apt-get clean \\u0026\\u0026 rm -rf /var/lib/apt/lists/*\' returned a non-zero code: 100"}\r\n']
-        @return [str] build_result decoded into a list of str.
-        """
-        list_str = []
-        for dict_byte in build_result:
-            ed = dict_byte.split(b'\r\n')
-            for raw_decoded_str in ed:
-                if raw_decoded_str == '{"stream":"\n"}':
-                    continue
-                list_str.append(raw_decoded_str.decode()) 
-        return list_str
+            if path:
+                if not os.path.exists(path):
+                    not_found.append(path)
+                elif not os.path.isfile(path):
+                    not_file.append(path)
+        if (not_found or not_file):  # Either one is non-null
+            raise FileNotFoundError("These file(s) user inputs are not found:\n\tNot found: {}\n\tNot a file: {}".format(not_found, not_file))
 
     @staticmethod
     def parse_build_result_dict(build_result):
@@ -222,82 +193,6 @@ class DockerBuilderVCS():
         logging.debug("docker build responses: {}".format(responses))
         #str_responses = self.parse_build_result(responses)
         return responses
-        
-    def _docker_build_oo(
-        self,
-        path_dockerfile,
-        baseimg,
-        network_mode="bridge",
-        path_repos_file="",
-        outimg="",
-        rm_intermediate=True,
-        entrypt_bin="",
-        tmpwork_dir="/tmp",
-        debug=False):
-        """
-        @brief Execute docker Python API via its "Object-oriented API" i.e. non-low-level/RESTful API.
-        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability. 
-            - 20220324 What's wrong with the non-low-level API? All args passed to '_docker_build_low_api' can be taken by OO API AFAIK.
-        @param network_mode: networking mode for the 'docker run' commands during build.
-            Ref. https://docs.docker.com/engine/reference/run/#network-settings for available options.
-        """
-        buildargs = self._consturct_buildargs(self._runtime_args)
-
-        _log = self._docker_client.images.build(
-            dockerfile=os.path.basename(path_dockerfile),
-            buildargs=buildargs,
-            #path=tmpwork_dir,
-            network_mode=network_mode,
-            path=".",
-            quiet=debug,
-            rm=rm_intermediate,
-            tag=outimg
-        )
-        # TODO Parse 'responses' object:  <itertools._tee object at 0x7fa75c026bc0>
-        logging.info("docker build responses: {}".format(responses))        
-        return _log
-    
-    def _docker_run(self, dimage, cmd, envvars=None):
-        """
-        @param cmd: A string of command that is passed to `bash -c`.
-        @type envvars: Dict
-        @return A container object (https://docker-py.readthedocs.io/en/stable/containers.html#docker.models.containers.Container).
-        """
-        try:
-            container = self._docker_client.containers.run(
-                image=dimage,
-                command=["bash", "-c", '{}'.format(cmd)],
-                stream=True,
-                environment=envvars,
-                privileged=True
-            )
-        except docker.errors.ContainerError as e:
-            logging.error("'docker run' failed: {}".format(str(e)))
-            self.docker_readlog(e.stderr)
-            raise e
-        return container
-
-    def copy(self, src_list_files, dest_dir):
-        """
-        @deprecated: 2022/04/08 'OsUtil.copy' is prioritized for maintenance.
-        @summary: If the some files (dockerfile, path_repos_file) that 'docker build' uses are not under current dir,
-            1. copy them in the temp folder on the host.
-            2. CD into the temp folder so that 'docker build' run in that context.
-        @param src_list_files: Absolute or relative path to a folder or file to be copied. 
-        """
-        if not os.path.isdir(path_docker_context):
-            os.makedirs(path_docker_context)
-        for path in list_files_src:
-            logging.debug("File to be copied: '{}'".format(path))
-            if os.path.isdir(path):
-                try:
-                    distutils.dir_util.copy_tree(os.path.abspath(path), os.path.join(path_docker_context, path))
-                except errors.DistutilsFileError as e:
-                    logging.warn("Failed to copy an object. Moving on to continue copying the rest.:\n\t{}".format(str(e)))                    
-            else:
-                shutil.copy2(src_file_path, dest_dir)
-        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(dest_dir)))
-        return dest_dir
 
     def docker_build(
             self,
@@ -358,21 +253,6 @@ class DockerBuilderVCS():
             if 'stream' in line:
                 # TODO Not necessarilly logging.error
                 logging.error(line['stream'].strip())
-
-    def docker_build_from_mount(self, docker_img, path_volume, debug=False):
-        """
-        @summary Build source that is in mounted volume if anything.
-           Docker container will be started with the volume(s) to be mounted. Then build.
-        @type paths_volume: [str]
-        """
-        _TMP_WS_DIR = "/workspace"
-        _TMP_WS_MOUNTED_DIR = os.path.join(_TMP_WS_DIR, "src/mounted") 
-        envvars = "-v {}:{}".format(path_volume, _TMP_WS_SRC_DIR)
-        cmd = "cd {} && colcon build".format(_TMP_WS_DIR)
-        container = self._docker_run(docker_img, cmd, envvars)
-        # commit the docker img with the same 'docker_img'
-        container.commit(docker_img)
-        # TODO Terminate the container?
 
     def generate_dockerimg(self,
               base_docker_img=DEfAULT_DOCKER_IMG,
