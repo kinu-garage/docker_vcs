@@ -8,10 +8,12 @@ import datetime
 import distutils.errors
 from distutils.dir_util import copy_tree
 import docker
+from docker_vcs_lib.os_util import OsUtil
 from io import BytesIO
 import json
 import logging
 import os
+from requests.exceptions import ConnectionError
 import pathlib
 import sh
 import shlex
@@ -24,93 +26,6 @@ DESC_DBUILDER = """'docker build' command with 3 additional features.
                     3) build and install (only catkin_tools is supported as of 2021/02).
                     The software to be cloned and built have to be Catkin/Colcon packages."""
 MSG_ENTRYPT_NO_SUBST = "As of 2021/02 entrypoint is statically embedded in a Docker image as resolving entrypoint seems not easy."
-
-
-class OsUtil():
-    """
-    @summary: Utility for Operating System handling.
-    """
-    SUFFIX_BACKUP = ".bk"
-
-    @staticmethod
-    def copy_prop_file(path_src, path_dest):
-        """
-        @brief: Python's file copy methods are known to be missing an option
-            to copy meta data. This method copies them from a file to another.
-        @return: True if copying metadata was successful.
-        @raise AssertionError: When either UID / GID / file size / st_dev
-            differs b/w src and dest files.
-        """
-        meta_src = os.stat(path_src)
-        os.chown(path_dest, meta_src.st_uid, meta_src.st_gid)
-
-        meta_dest = os.stat(path_dest)
-        if (meta_src.st_uid != meta_dest.st_uid) or \
-           (meta_src.st_gid != meta_dest.st_gid) or \
-           (meta_src.st_dev != meta_dest.st_dev) or \
-           (meta_src.st_size != meta_dest.st_size):
-            raise AssertionError("Copying meta data failed. Metadata per file:\n\tSrc: {}\n\tDst: {}".format(meta_src, meta_dest))
-        else:
-            return True
-
-    @staticmethod
-    def copy(src_path,
-             path_root_backup="",
-             dest_file_extension=SUFFIX_BACKUP,
-             errmsg="No right to write in the destination",
-             copy_metadata=True):
-        """
-        @brief: Make a copy of the given file in the given folder.
-            Meta data of the file can be copied as well.
-        @param src_path: Path of the source file. If this points to a directory,
-            then the entire directory will be copied.
-        @param path_root_backup: (Option) Root path of the backup file to be saved in.
-        @param dest_file_extension: (Option) file extension of the backup file.
-            This is only used when 'path_root_backup' is not zero value.
-        @param copy_metadata: If True, metadata will be copied
-        @return Absolute path of the destination.
-        @raise EnvironmentError When the path 'src_path' cannot be found.
-        @raise PermissionError when saving a file failed due to permission.
-        """
-        # Some screening in the beginning
-        if not os.path.exists(src_path):
-            raise EnvironmentError("Path defined in src_path '{}' cannot be found.".format(src_path))
-
-        src_rootdir = os.path.dirname(src_path)
-        # When relative path to a file in the working directory is passed,
-        # abs path needs to be figured out.
-        if not src_rootdir:
-            src_rootdir = os.path.abspath(os.getcwd())
-        # "leaf" here is the last segment of the path. 
-        # It's the name of either directory or file.
-        src_leaf_name = pathlib.Path(src_path).parts[-1]
-        dest_abs_path = ""
-        if path_root_backup:
-            if not os.path.exists(path_root_backup):
-                os.makedirs(path_root_backup)
-            dest_abs_path = os.path.join(path_root_backup, src_leaf_name)
-        else:
-            dest_abs_path = os.path.join(src_rootdir, src_leaf_name + dest_file_extension)
-        logging.debug("Paths\n\tpath_root_backup: {}\n\tsrc_rootdir = {}\n\tsrc_leaf_name = {}\n\tdest_abs_path = {}".format(
-            path_root_backup, src_rootdir, src_leaf_name, dest_abs_path))
-
-        try:
-            logging.info("Saving from '{}', to '{}'".format(src_path, dest_abs_path))
-            if os.path.isfile(src_path):
-                shutil.copyfile(src_path, dest_abs_path)
-            else:
-                logging.info("'{}' is not a file. Copying it to '{}'".format(src_path, dest_abs_path))
-                shutil.copytree(src_path, dest_abs_path)
-        except PermissionError as e:
-            raise type(e)(e.message + " Copy failed due to the permission error at '{}'. ".format(src_path))
-
-        if copy_metadata:
-            try:
-                OsUtil.copy_prop_file(src_path, dest_abs_path)
-            except AssertionError as e:
-                logging.fatal("File was copied, but copying metadata failed. Detail: {}".format(str(e)))
-
-        return dest_abs_path
 
 
 class DockerBuilderVCS():
@@ -128,20 +43,17 @@ class DockerBuilderVCS():
     def __init__(self):
         try:
             self._docker_client = docker.from_env()
-        except (docker.errors.APIError, docker.errors.TLSParameterError) as e:
-            logging.error(str(e))
+        except (docker.errors.DockerException, docker.errors.APIError, docker.errors.TLSParameterError, ConnectionError) as e:
+            # Message hinted from https://github.com/osrf/rocker/pull/215
+            msg = ("Docker Client failed to connect to docker daemon."
+                   " Please verify that docker is installed and running,"
+                   " as well as that you have permission to access the docker daemon."
+                   " This happens usually by being a member of the docker group,"
+                   " also if this is run inside a Docker container (this module is intended to run outside of a container)."
+                   " Underlying error was:\n{}".format(str(e)))
+            logging.error(msg)
             exit(1)
         pass
-
-    def docker_login():
-        try:
-            # When pushing to cloud, log in to docker registry.
-            if self._push_cloud:
-               self._docker_client.login(
-                   username=docker_account, password=docker_pw, registry=docker_registry)
-        except (APIError, TLSParameterError) as e:
-            logging.error(str(e))
-            exit(1)
 
     def init(self, args):
         """
@@ -181,38 +93,21 @@ class DockerBuilderVCS():
     @staticmethod
     def check_prerequisite(paths):
         """
+        @brief: If an element of 'paths' is not null, then see if there is a file at the path. 
         @type: [str] 
         @raise FileNotFoundError: When any input files are not found at the given path.
         """
         not_found = []
+        not_file = []
+        logging.debug("Paths: {}".format(paths))
         for path in paths:
-            if path and (not os.path.isfile(path)):
-                not_found.append(path)
-        if not_found:
-            raise FileNotFoundError("These file(s) user inputs are not found: {}".format(not_found))
-
-    @staticmethod
-    def parse_build_result(build_result):
-        """
-        @brief Decode the docker.APIClient.build() output, which has a tricky
-            data structure, to a list of str.
-         
-        @param build_result: [b"{str: str}]
-            A raw output from 'docker.APIClient.build' ('low-level API") may
-            look something like:
-                [b'{"stream":"Step 1/33 : ARG BASE_DIMG"}\r\n{"stream":"\\n"}\r\n
-                :
-                /etc/apt/sources.list.d/gazebo-latest.list  \\u0026\\u0026 apt-get clean \\u0026\\u0026 rm -rf /var/lib/apt/lists/*\' returned a non-zero code: 100"},"error":"The command \'/bin/bash -c apt-get update  \\u002 \\"deb http://packages.osrfoundation.org/gazebo/ubuntu-stable $UBUNTU_DISTRO main\\" \\u003e /etc/apt/sources.list.d/gazebo-latest.list  \\u0026\\u0026 apt-get clean \\u0026\\u0026 rm -rf /var/lib/apt/lists/*\' returned a non-zero code: 100"}\r\n']
-        @return [str] build_result decoded into a list of str.
-        """
-        list_str = []
-        for dict_byte in build_result:
-            ed = dict_byte.split(b'\r\n')
-            for raw_decoded_str in ed:
-                if raw_decoded_str == '{"stream":"\n"}':
-                    continue
-                list_str.append(raw_decoded_str.decode()) 
-        return list_str
+            if path:
+                if not os.path.exists(path):
+                    not_found.append(path)
+                elif not os.path.isfile(path):
+                    not_file.append(path)
+        if (not_found or not_file):  # Either one is non-null
+            raise FileNotFoundError("These file(s) user inputs are not found:\n\tNot found: {}\n\tNot a file: {}".format(not_found, not_file))
 
     @staticmethod
     def parse_build_result_dict(build_result):
@@ -274,6 +169,7 @@ class DockerBuilderVCS():
         """
         @brief Execute docker Python API via its lower-level API.
         @param path_context: Path of the directory'path_dockerfile' is located in.
+        @return 
         """
         result = False
         dockerfile = os.path.basename(path_dockerfile)
@@ -287,6 +183,7 @@ class DockerBuilderVCS():
             buildargs=buildargs,
             dockerfile=dockerfile,
         #    fileobj=fobj,
+            network_mode=network_mode,
             path=tmpwork_dir,
             quiet=debug,
             rm=rm_intermediate,
@@ -295,91 +192,7 @@ class DockerBuilderVCS():
         )]
         logging.debug("docker build responses: {}".format(responses))
         #str_responses = self.parse_build_result(responses)
-        str_responses = responses
-        if str_responses:
-            result = True
-        res_lines = DockerBuilderVCS.parse_build_result_dict(str_responses)
-        line_counter = 0
-        for line in res_lines:
-            logging.info("Line#{}: {}".format(line_counter, line))
-            line_counter += 1
-        return result
-        
-    def _docker_build_oo(
-        self,
-        path_dockerfile,
-        baseimg,
-        network_mode="bridge",
-        path_repos_file="",
-        outimg="",
-        rm_intermediate=True,
-        entrypt_bin="",
-        tmpwork_dir="/tmp",
-        debug=False):
-        """
-        @brief Execute docker Python API via its "Object-oriented API" i.e. non-low-level/RESTful API.
-        @deprecated: Not planned to be maintained. Use docker_build instead. This uses docker-py's method that misses some capability. 
-            - 20220324 What's wrong with the non-low-level API? All args passed to '_docker_build_low_api' can be taken by OO API AFAIK.
-        @param network_mode: networking mode for the 'docker run' commands during build.
-            Ref. https://docs.docker.com/engine/reference/run/#network-settings for available options.
-        """
-        buildargs = self._consturct_buildargs(self._runtime_args)
-
-        img, _log = self._docker_client.images.build(
-            dockerfile=os.path.basename(path_dockerfile),
-            buildargs=buildargs,
-            #path=tmpwork_dir,
-            network_mode=network_mode,
-            path=".",
-            quiet=debug,
-            rm=rm_intermediate,
-            tag=outimg
-        )
-        # TODO Parse 'responses' object:  <itertools._tee object at 0x7fa75c026bc0>
-        logging.info("docker build responses: {}".format(responses))        
-        return img, _log
-    
-    def _docker_run(self, dimage, cmd, envvars=None):
-        """
-        @param cmd: A string of command that is passed to `bash -c`.
-        @type envvars: Dict
-        @return A container object (https://docker-py.readthedocs.io/en/stable/containers.html#docker.models.containers.Container).
-        """
-        try:
-            container = self._docker_client.containers.run(
-                image=dimage,
-                command=["bash", "-c", '{}'.format(cmd)],
-                stream=True,
-                environment=envvars,
-                privileged=True
-            )
-        except docker.errors.ContainerError as e:
-            logging.error("'docker run' failed: {}".format(str(e)))
-            self.docker_readlog(e.stderr)
-            raise e
-        return container
-
-    def copy(self, src_list_files, dest_dir):
-        """
-        @deprecated: 2022/04/08 'OsUtil.copy' is prioritized for maintenance.
-        @summary: If the some files (dockerfile, path_repos_file) that 'docker build' uses are not under current dir,
-            1. copy them in the temp folder on the host.
-            2. CD into the temp folder so that 'docker build' run in that context.
-        @param src_list_files: Absolute or relative path to a folder or file to be copied. 
-        """
-        if not os.path.isdir(path_docker_context):
-            os.makedirs(path_docker_context)
-        for path in list_files_src:
-            logging.debug("File to be copied: '{}'".format(path))
-            if os.path.isdir(path):
-                try:
-                    distutils.dir_util.copy_tree(os.path.abspath(path), os.path.join(path_docker_context, path))
-                except errors.DistutilsFileError as e:
-                    logging.warn("Failed to copy an object. Moving on to continue copying the rest.:\n\t{}".format(str(e)))                    
-            else:
-                shutil.copy2(src_file_path, dest_dir)
-        logging.info("Files are copied into a temp dir: '{}'".format(os.listdir(dest_dir)))
-        return dest_dir
+        return responses
 
     def docker_build(
             self,
@@ -412,7 +225,7 @@ class DockerBuilderVCS():
         _log = None
         try:
             #dimg, _log = self._docker_build_oo(
-            dimg, _log = self._docker_build_low_api(
+            _log = self._docker_build_low_api(
                 path_dockerfile, baseimg,
                 network_mode=network_mode,
                 path_repos_file=path_repos_file,
@@ -426,10 +239,11 @@ class DockerBuilderVCS():
             logging.error("'docker build' failed: {}".format(str(e)))
             raise e
         finally:
-            if _log:
-                for line in _log:
-                    if 'stream' in line:
-                        logging.error(line['stream'].strip())
+            res_lines = DockerBuilderVCS.parse_build_result_dict(_log)
+            line_counter = 0
+            for line in res_lines:
+                logging.info("Line#{}: {}".format(line_counter, line))
+                line_counter += 1
 
     def docker_readlog(self, logobj):
         """
@@ -439,21 +253,6 @@ class DockerBuilderVCS():
             if 'stream' in line:
                 # TODO Not necessarilly logging.error
                 logging.error(line['stream'].strip())
-
-    def docker_build_from_mount(self, docker_img, path_volume, debug=False):
-        """
-        @summary Build source that is in mounted volume if anything.
-           Docker container will be started with the volume(s) to be mounted. Then build.
-        @type paths_volume: [str]
-        """
-        _TMP_WS_DIR = "/workspace"
-        _TMP_WS_MOUNTED_DIR = os.path.join(_TMP_WS_DIR, "src/mounted") 
-        envvars = "-v {}:{}".format(path_volume, _TMP_WS_SRC_DIR)
-        cmd = "cd {} && colcon build".format(_TMP_WS_DIR)
-        container = self._docker_run(docker_img, cmd, envvars)
-        # commit the docker img with the same 'docker_img'
-        container.commit(docker_img)
-        # TODO Terminate the container?
 
     def generate_dockerimg(self,
               base_docker_img=DEfAULT_DOCKER_IMG,
@@ -467,19 +266,20 @@ class DockerBuilderVCS():
         @param base_docker_img: Docker image that Dockerfile starts with. This must be supplied.
         @param entrypt_bin: Path to the executable used in a Dockerfile.
         """
-        if not entrypt_bin:
-            try:
-                entrypt_bin = BuilderVCSUtil.get_path(entrypt_bin)
-            except FileNotFoundError as e:
-                loggin.warn("""
+        entrypt_bin_abs = ""
+        if entrypt_bin:
+            entrypt_bin_abs = shutil.which(os.path.abspath(entrypt_bin))
+        else:
+            logging.warn("""
                     Entrypoint executable not passed, nor any files with 
-                    commonly used names are not found. This doesn't mean error,
+                    commonly used names are not found. This doesn't mean the tool should fail,
                     e.g. if entrypoint is not used in Dockerfile, this won't
-                    cause any error. Limitation tracked: https://github.com/130s/docker_vcstool/issues/5
-                    \n{}""".format(str(e)))
+                    cause any error. Limitation tracked: https://github.com/130s/docker_vcs/issues/5
+                    """)
+        tobe_copied_into_container = [path_dockerfile, entrypt_bin_abs]
         # If prerequisite not met, exit the entire process.
         try:
-            self.check_prerequisite([path_dockerfile, entrypt_bin])
+            self.check_prerequisite(tobe_copied_into_container)
         except FileNotFoundError as e:
             logging.error(str(e))
             exit(1)
@@ -488,21 +288,25 @@ class DockerBuilderVCS():
 
         # Copy the resources that are meant to be copied into
         # the to-be-generated Docker image into the temp location.
-        tobe_copied = [path_dockerfile, entrypt_bin]
+
+        # TODO Check if '--tmp_context_path' is a valid path.
+
         tmp_context_path = "/tmp/docker_vcs_{}".format(datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S'))
         if self._runtime_args.path_repos_file:
-            tobe_copied.append(self._runtime_args.path_repos_file)
+            tobe_copied_into_container.append(self._runtime_args.path_repos_file)
         elif self._runtime_args.volume_build:
-            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(self._runtime_args.volume_build))
+            logging.info("'volume_build' is set. All files and folders under the volume dir '{}' are to be copied into the workspace.".format(
+                self._runtime_args.volume_build))
             if not self._runtime_args.volume_build.endswith(self.TOPDIR_SRC):
-                logging.info("The mounted top dir name '{}' is not 'src', then not adding the top dir to tobe_copied.".format(self._runtime_args.volume_build))
+                logging.info("The mounted top dir name '{}' is not '{}', then not adding the top dir to tobe_copied_into_container.".format(
+                    self._runtime_args.volume_build, self.TOPDIR_SRC))
                 for f in os.listdir(self._runtime_args.volume_build):
-                    self.copy(f, tmp_docker_context_dir)
-            tobe_copied.append(self._runtime_args.volume_build)
+                    OsUtil.copy(f, tmp_context_path)
+            tobe_copied_into_container.append(self._runtime_args.volume_build)
         # Copying files
-        for f in tobe_copied:
+        for f in tobe_copied_into_container:
             OsUtil.copy(f, tmp_context_path)
-        #self.copy(tmp_context_path, tobe_copied)
+        #self.copy(tmp_context_path, tobe_copied_into_container)
 
         # Someone said chdir-ing and running 'docker build' can be dangerous so
         # stop doing so. Instead, because 'docker build' can take the context
@@ -536,7 +340,7 @@ class DockerBuilderVCS():
         parser.add_argument("--debug", help="Disabled by default.", action="store_true")
         parser.add_argument("--docker_base_img", help="Image Dockerfile begins with.", default=DockerBuilderVCS.DEfAULT_DOCKER_IMG)
         parser.add_argument("--dockerfile", help="Dockerfile path to be used to build the Docker image with. This can be remote. Default is './{}'.".format(DockerBuilderVCS.DEfAULT_DOCKERFILE))
-        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default=".")
+        parser.add_argument("--entrypoint_exec", help="Docker's entrypoint that will be passed to Dockerfile.", default="")
         parser.add_argument("--log_file", help="If defined, std{out, err} will be saved in a file. If not passed output will be streamed.", action="store_true")
         parser.add_argument("--network_mode", help="Same options are available for networking mode for the 'docker run' command", default="bridge")
         parser.add_argument("--docker_out_img", help="Entire path of the Docker image ot be built.", default=".")
@@ -570,8 +374,3 @@ class DockerBuilderVCS():
             debug=args.debug,
             entrypt_bin=args.entrypoint_exec,
             tmp_context_path=args.tmp_context_path)
-
-
-if __name__ == '__main__':
-    dockerbuilder = DockerBuilderVCS()
-    dockerbuilder.main()
